@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+/*
+  Light classic POS theme — high-contrast, flat, large components.
+  (Replaces the original dark CosyPOS direction per user preference.)
+  `static` forces every variable to be emitted — accent colors like `pink` are
+  used only via var() in inline styles, so otherwise Tailwind tree-shakes them.
+*/
+@theme static {
+  /* Surfaces & text — light */
+  --color-bg: #eef1f5; /* app background (light grey) */
+  --color-panel: #ffffff; /* cards, nav, check panel */
+  --color-panel-2: #e6eaf0; /* inputs, selected rows, chips */
+  --color-line: #c4ccd8; /* borders, dividers */
+  --color-text: #1b2230; /* primary text (near-black) */
+  --color-muted: #6a7384; /* secondary text, hints */
+
+  /* Accents — saturated solids that read on white, with white text on top */
+  --color-blue: #2563eb; /* primary action (Pay), category */
+  --color-pink: #db2777; /* category accent */
+  --color-purple: #7c3aed; /* category accent, comp */
+  --color-mint: #16a34a; /* success / send / paid (green) */
+  --color-amber: #d97706; /* held, ticket number */
+  --color-coral: #dc2626; /* void, destructive (red) */
+
+  /* Radius — classic, lightly rounded */
+  --radius-card: 12px;
+  --radius-chip: 10px;
+
+  /* Typography — clean sans, no serif */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --ease-press: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    overflow: hidden;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-blue);
+    outline-offset: 2px;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+}
+
+/* Card press — subtle scale, respects reduced motion */
+@utility press {
+  transition:
+    transform 120ms var(--ease-press),
+    background-color 120ms var(--ease-press);
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+  .press:active {
+    transform: none;
+  }
+}
+
+.scroll-area {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+.scroll-area::-webkit-scrollbar {
+  width: 10px;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 999px;
+}
+
+/* End-of-day closing summary: hidden on screen, the only thing printed. */
+@media screen {
+  #closing-summary {
+    display: none;
+  }
+}
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #closing-summary,
+  #closing-summary * {
+    visibility: visible;
+  }
+  #closing-summary {
+    position: absolute;
+    inset: 0;
+    display: block;
+    padding: 24px;
+    color: #000;
+    background: #fff;
+  }
+}

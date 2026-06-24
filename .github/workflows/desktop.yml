@@ -1,0 +1,44 @@
+name: Build Windows desktop app
+
+# Builds the Caisse Windows installer (.msi + .exe) on every push and on demand.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate app icons (from public/favicon.svg)
+        run: |
+          npm i -D sharp
+          node -e "require('sharp')('public/favicon.svg').resize(1024,1024).png().toFile('app-icon.png').then(()=>console.log('icon generated'))"
+          npx tauri icon app-icon.png
+
+      - name: Build desktop app
+        run: npx tauri build
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: caisse-windows
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe

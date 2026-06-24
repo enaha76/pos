@@ -1,0 +1,20 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vite
+.playwright-mcp
+*.tsbuildinfo
+
+# rust backend
+backend/target
+
+# tauri desktop
+src-tauri/target
+src-tauri/gen
+src-tauri/icons
+app-icon.png
+
+# verification screenshots
+/*.png

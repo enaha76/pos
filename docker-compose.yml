@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cashier
+      POSTGRES_PASSWORD: cashier
+      POSTGRES_DB: cashier_charge
+    # Not exposed to the host (port 5432 may be in use). The API reaches it over
+    # the internal compose network as `db:5432`. Inspect with:
+    #   docker compose exec db psql -U cashier -d cashier_charge
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cashier -d cashier_charge"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgres://cashier:cashier@db:5432/cashier_charge
+      RUST_LOG: info,tower_http=info
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  dbdata:
