@@ -1,4 +1,11 @@
-# Statically link the MSVC C runtime so the .exe is fully self-contained —
-# no VC++ redistributable needed on a bare Windows 7 machine.
-[target.x86_64-pc-windows-msvc]
+# Build for the tier-3 Windows 7 target, compiling std from source so we can use
+# a current Rust toolchain (needed by modern crates) while still running on Win7.
+[build]
+target = "x86_64-win7-windows-msvc"
+
+[unstable]
+build-std = ["std", "panic_abort"]
+
+# Static CRT → self-contained .exe, no VC++ redistributable needed on Windows 7.
+[target.x86_64-win7-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]

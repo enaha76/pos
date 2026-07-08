@@ -1,4 +1,7 @@
 [toolchain]
-# Rust 1.78+ dropped Windows 7 support in std. 1.77.x on the standard MSVC
-# target still produces binaries that run on Windows 7.
-channel = "1.77.2"
+# Windows 7 is a tier-3 target (x86_64-win7-windows-msvc): std isn't prebuilt,
+# so we compile it from source with -Z build-std (see .cargo/config.toml), which
+# requires nightly + the rust-src component. Modern crates (Slint 1.17+) use
+# edition 2024, so an old stable toolchain no longer works.
+channel = "nightly"
+components = ["rust-src"]

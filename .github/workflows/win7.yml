@@ -1,7 +1,8 @@
 name: Build Windows 7 desktop app (Slint)
 
-# Native Win7 build (Slint + embedded SQLite, no WebView2). Built with Rust
-# 1.77.x on the standard MSVC target so the .exe runs on Windows 7.
+# Native Win7 build (Slint + embedded SQLite, no WebView2). Uses current nightly
+# Rust with the tier-3 x86_64-win7-windows-msvc target (std built from source),
+# so modern crates compile and the .exe still runs on Windows 7.
 on:
   push:
     branches: [main]
@@ -20,20 +21,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust 1.77.2
+      - name: Install Rust nightly + std source
         shell: bash
-        run: rustup toolchain install 1.77.2 --profile minimal --no-self-update
+        run: |
+          rustup toolchain install nightly --profile minimal --no-self-update
+          rustup component add rust-src --toolchain nightly
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: win7
 
-      - name: Build (release)
-        run: cargo +1.77.2 build --release
+      - name: Build (release, Windows 7 target)
+        run: cargo +nightly build --release
 
       - name: Upload exe
         uses: actions/upload-artifact@v4
         with:
           name: caisse-win7
-          path: win7/target/release/caisse-win7.exe
+          path: win7/target/x86_64-win7-windows-msvc/release/caisse-win7.exe
           if-no-files-found: error
