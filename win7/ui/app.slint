@@ -1,13 +1,18 @@
-import { ScrollView } from "std-widgets.slint";
+import { ScrollView, LineEdit } from "std-widgets.slint";
 
 export struct ProductItem { id: string, name: string, price: int, color: color }
 export struct CategoryChip { id: string, name: string, color: color }
 export struct GridRow { a: ProductItem, b: ProductItem, c: ProductItem, count: int }
 export struct CheckLine { item_id: string, name: string, qty: int, total: int, state: string }
 export struct ReasonItem { id: string, label: string }
+export struct ZoneTab { id: string, name: string }
+export struct TableSpot { id: string, label: string }
+export struct ServerItem { id: string, name: string }
+export struct CheckChip { id: string, label: string, active: bool }
 
 component ProductCard inherits Rectangle {
     in property <ProductItem> product;
+    in property <string> currency;
     callback clicked;
     horizontal-stretch: 1;
     height: 96px;
@@ -21,7 +26,7 @@ component ProductCard inherits Rectangle {
         padding-top: 16px;
         Text { text: product.name; font-size: 15px; font-weight: 700; wrap: word-wrap; }
         Rectangle { vertical-stretch: 1; }
-        Text { text: "\{product.price} MRU"; font-size: 18px; font-weight: 800; color: product.color; }
+        Text { text: "\{product.price} \{root.currency}"; font-size: 18px; font-weight: 800; color: product.color; }
     }
     TouchArea { clicked => { root.clicked(); } }
 }
@@ -47,6 +52,24 @@ component Pill inherits Rectangle {
     TouchArea { clicked => { root.clicked(); } }
 }
 
+// A rounded tab with no dot (zones).
+component Tab inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked;
+    height: 40px;
+    border-radius: 10px;
+    background: active ? #2563eb : white;
+    border-width: 1px;
+    border-color: #c4ccd8;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        Text { text: label; vertical-alignment: center; font-weight: 700; color: active ? white : #1b2230; }
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
 component Key inherits Rectangle {
     in property <string> label;
     in property <color> fill: #eef1f5;
@@ -60,7 +83,6 @@ component Key inherits Rectangle {
     TouchArea { clicked => { root.clicked(); } }
 }
 
-// A filled action button (used for send / pay / actions).
 component ActionBtn inherits Rectangle {
     in property <string> label;
     in property <color> fill;
@@ -86,34 +108,50 @@ component ReasonBtn inherits Rectangle {
 
 export component MainWindow inherits Window {
     title: "Caisse — Café Adalya";
-    preferred-width: 1040px;
-    preferred-height: 700px;
-    min-width: 900px;
-    min-height: 600px;
+    preferred-width: 1080px;
+    preferred-height: 720px;
+    min-width: 940px;
+    min-height: 620px;
 
     in property <bool> logged-in: false;
     in property <string> login-error;
     in property <string> operator-name;
+    in property <string> currency: "MRU";
     in property <[CategoryChip]> categories;
     in property <[GridRow]> grid;
+    in property <[ZoneTab]> zones;
+    in property <[TableSpot]> tables;
+    in property <[ServerItem]> servers;
+    in property <[CheckChip]> open-checks;
     in property <[CheckLine]> lines;
     in property <int> total;
-    in property <int> comps;
     in property <int> ticket;
     in property <bool> has-check;
     in property <bool> can-send;
     in property <bool> can-pay;
     in property <string> status;
+    in property <string> zone-name;
+    in property <string> spot-label;
+    in property <string> table-label;
+    in property <string> server-name;
+    in property <string> active-table-mode;
     in property <[ReasonItem]> void-reasons;
     in property <[ReasonItem]> comp-reasons;
     in property <[ReasonItem]> unpaid-reasons;
     in-out property <string> active-cat: "all";
+    in-out property <string> active-zone;
+    in-out property <string> active-table-id;
     in-out property <string> selected-item;
     in-out property <string> selected-state;
     in-out property <string> modal-kind;
 
     callback login(string);
     callback select-category(string);
+    callback select-zone(string);
+    callback set-table(string, string);
+    callback pick-server(string);
+    callback open-check(string);
+    callback new-check();
     callback add-product(string);
     callback inc-line(string, int);
     callback send();
@@ -180,8 +218,9 @@ export component MainWindow inherits Window {
     if root.logged-in : Rectangle {
         background: #eef1f5;
         VerticalLayout {
+            // top bar
             Rectangle {
-                height: 60px;
+                height: 56px;
                 background: white;
                 HorizontalLayout {
                     padding: 14px;
@@ -191,7 +230,7 @@ export component MainWindow inherits Window {
                     Text { text: root.operator-name; color: #6a7384; vertical-alignment: center; }
                     Rectangle {
                         width: 130px;
-                        height: 38px;
+                        height: 36px;
                         border-radius: 10px;
                         background: #eef1f5;
                         Text { text: "Déconnexion"; horizontal-alignment: center; vertical-alignment: center; font-weight: 600; }
@@ -200,14 +239,63 @@ export component MainWindow inherits Window {
                 }
             }
 
+            // open checks bar
+            Rectangle {
+                height: 56px;
+                background: white;
+                border-width: 1px;
+                border-color: #eef1f5;
+                HorizontalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+                    ScrollView {
+                        horizontal-stretch: 1;
+                        height: 40px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            for c in root.open-checks : Rectangle {
+                                height: 38px;
+                                border-radius: 10px;
+                                background: c.active ? #2563eb : #eef1f5;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    Text { text: c.label; vertical-alignment: center; font-weight: 600; color: c.active ? white : #1b2230; }
+                                }
+                                TouchArea { clicked => { root.open-check(c.id); } }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        width: 160px;
+                        height: 38px;
+                        border-radius: 10px;
+                        background: #16a34a;
+                        Text { text: "+ Nouvelle note"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                        TouchArea { clicked => { root.new-check(); } }
+                    }
+                }
+            }
+
             HorizontalLayout {
-                // ---- left: categories + product grid ----
+                // ---- left: zones + categories + product grid ----
                 VerticalLayout {
                     horizontal-stretch: 1;
                     padding: 12px;
                     spacing: 10px;
                     ScrollView {
-                        height: 46px;
+                        height: 44px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            for z in root.zones : Tab {
+                                label: z.name;
+                                active: root.active-zone == z.id;
+                                clicked => { root.select-zone(z.id); }
+                            }
+                        }
+                    }
+                    ScrollView {
+                        height: 44px;
                         HorizontalLayout {
                             spacing: 8px;
                             Pill { label: "Tout"; dot: #6a7384; active: root.active-cat == "all"; clicked => { root.active-cat = "all"; root.select-category("all"); } }
@@ -225,10 +313,10 @@ export component MainWindow inherits Window {
                             spacing: 10px;
                             for row in root.grid : HorizontalLayout {
                                 spacing: 10px;
-                                ProductCard { product: row.a; clicked => { root.add-product(row.a.id); } }
-                                if row.count >= 2 : ProductCard { product: row.b; clicked => { root.add-product(row.b.id); } }
+                                ProductCard { product: row.a; currency: root.currency; clicked => { root.add-product(row.a.id); } }
+                                if row.count >= 2 : ProductCard { product: row.b; currency: root.currency; clicked => { root.add-product(row.b.id); } }
                                 if row.count < 2 : Rectangle { horizontal-stretch: 1; }
-                                if row.count >= 3 : ProductCard { product: row.c; clicked => { root.add-product(row.c.id); } }
+                                if row.count >= 3 : ProductCard { product: row.c; currency: root.currency; clicked => { root.add-product(row.c.id); } }
                                 if row.count < 3 : Rectangle { horizontal-stretch: 1; }
                             }
                         }
@@ -237,7 +325,7 @@ export component MainWindow inherits Window {
 
                 // ---- right: check panel ----
                 Rectangle {
-                    width: 370px;
+                    width: 380px;
                     background: white;
                     VerticalLayout {
                         padding: 16px;
@@ -245,6 +333,42 @@ export component MainWindow inherits Window {
                         Text {
                             text: root.has-check ? "Ticket nº \{root.ticket}" : "Nouvelle note";
                             font-size: 18px; font-weight: 800; color: #d97706;
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Text { text: root.zone-name == "" ? "Aucune zone" : root.zone-name; color: #6a7384; vertical-alignment: center; }
+                            if root.table-label != "" : Text { text: "· \{root.spot-label} \{root.table-label}"; color: #6a7384; vertical-alignment: center; }
+                        }
+
+                        // server assignment
+                        Rectangle {
+                            height: 44px; border-radius: 10px; background: #eef1f5; border-width: 1px; border-color: #c4ccd8;
+                            HorizontalLayout {
+                                padding-left: 12px; padding-right: 12px; spacing: 8px;
+                                Text { text: "Serveur"; color: #6a7384; vertical-alignment: center; }
+                                Text { text: root.server-name; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                                Text { text: "▾"; color: #6a7384; vertical-alignment: center; }
+                            }
+                            TouchArea { clicked => { root.modal-kind = "server"; } }
+                        }
+
+                        // table selector
+                        if root.active-table-mode == "free" : LineEdit {
+                            placeholder-text: "Numéro (optionnel), Entrée pour valider";
+                            text: root.table-label;
+                            accepted(t) => { root.set-table("", t); }
+                        }
+                        if root.active-table-mode == "fixed" : ScrollView {
+                            height: 50px;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                for t in root.tables : Rectangle {
+                                    width: 50px; height: 44px; border-radius: 8px;
+                                    background: root.active-table-id == t.id ? #2563eb : #eef1f5;
+                                    Text { text: t.label; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; color: root.active-table-id == t.id ? white : #1b2230; }
+                                    TouchArea { clicked => { root.set-table(t.id, ""); } }
+                                }
+                            }
                         }
 
                         ScrollView {
@@ -274,7 +398,7 @@ export component MainWindow inherits Window {
                                             }
                                         }
                                         Text {
-                                            text: "\{l.total} MRU"; vertical-alignment: center; font-weight: 700;
+                                            text: "\{l.total} \{root.currency}"; vertical-alignment: center; font-weight: 700;
                                             color: (l.state == "VOID" || l.state == "COMP") ? #6a7384 : #1b2230;
                                         }
                                     }
@@ -283,7 +407,6 @@ export component MainWindow inherits Window {
                             }
                         }
 
-                        // contextual line actions
                         if root.selected-state == "HELD" : HorizontalLayout {
                             spacing: 8px;
                             Rectangle { width: 48px; height: 44px; border-radius: 8px; background: #e6eaf0;
@@ -309,7 +432,7 @@ export component MainWindow inherits Window {
                         Rectangle { height: 1px; background: #c4ccd8; }
                         HorizontalLayout {
                             Text { text: "TOTAL"; font-size: 20px; font-weight: 800; horizontal-stretch: 1; vertical-alignment: center; }
-                            Text { text: "\{root.total} MRU"; font-size: 22px; font-weight: 800; }
+                            Text { text: "\{root.total} \{root.currency}"; font-size: 22px; font-weight: 800; }
                         }
 
                         ActionBtn { label: "Envoyer en cuisine"; fill: #16a34a; enabled: root.can-send; clicked => { root.send(); } }
@@ -335,7 +458,7 @@ export component MainWindow inherits Window {
         }
     }
 
-    // ===================== REASON MODAL =====================
+    // ===================== MODAL (server picker / reasons) =====================
     if root.modal-kind != "" : Rectangle {
         background: #00000088;
         TouchArea { clicked => { root.modal-kind = ""; } }
@@ -345,7 +468,7 @@ export component MainWindow inherits Window {
                 alignment: center;
                 Rectangle {
                     width: 380px;
-                    height: 440px;
+                    height: 460px;
                     background: white;
                     border-radius: 14px;
                     VerticalLayout {
@@ -353,13 +476,19 @@ export component MainWindow inherits Window {
                         spacing: 8px;
                         Text {
                             font-size: 18px; font-weight: 800;
-                            text: root.modal-kind == "void" ? "Annuler l'article" : root.modal-kind == "comp" ? "Offrir l'article" : "Clôturer la note impayée";
+                            text: root.modal-kind == "server" ? "Assigner un serveur"
+                                : root.modal-kind == "void" ? "Annuler l'article"
+                                : root.modal-kind == "comp" ? "Offrir l'article"
+                                : "Clôturer la note impayée";
                         }
-                        Text { text: "Choisissez un motif"; color: #6a7384; }
                         ScrollView {
                             vertical-stretch: 1;
                             VerticalLayout {
                                 spacing: 6px;
+                                if root.modal-kind == "server" : VerticalLayout {
+                                    spacing: 6px;
+                                    for s in root.servers : ReasonBtn { label: s.name; clicked => { root.pick-server(s.id); root.modal-kind = ""; } }
+                                }
                                 if root.modal-kind == "void" : VerticalLayout {
                                     spacing: 6px;
                                     for rz in root.void-reasons : ReasonBtn { label: rz.label; clicked => { root.apply-reason("void", root.selected-item, rz.id); root.modal-kind = ""; } }
