@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useStore } from "@/store/useStore";
 import { api, type DailyReport, type ReportSummary } from "@/lib/api";
 import { Field } from "@/components/setup/ui";
-import { money, classNames, todayStr } from "@/lib/util";
+import { money, classNames, todayStr, BUSINESS_NAME } from "@/lib/util";
 
 type Tab = "daily" | "global";
 
@@ -152,7 +152,7 @@ function ClosingSummary({ data, cur }: { data: DailyReport; cur: string }) {
   return (
     <div id="closing-summary" className="mx-auto max-w-md text-black">
       <div className="text-center">
-        <div className="text-xl font-extrabold">CAISSE</div>
+        <div className="text-xl font-extrabold">{BUSINESS_NAME}</div>
         <div className="text-sm">Clôture de journée — {dateFr}</div>
       </div>
 

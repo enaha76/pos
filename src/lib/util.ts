@@ -1,5 +1,8 @@
 /** Small helpers shared across the app. */
 
+/** Business name shown on printed documents (facture, end-of-day summary). */
+export const BUSINESS_NAME = "Café Adalya";
+
 let _counter = 0;
 /** Monotonic-ish id; fine for a single-station client store. */
 export function id(prefix = "id"): string {

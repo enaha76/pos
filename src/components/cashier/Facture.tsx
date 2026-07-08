@@ -1,5 +1,5 @@
 import { checkTotals } from "@/lib/totals";
-import { money } from "@/lib/util";
+import { BUSINESS_NAME, money } from "@/lib/util";
 import type { Check, Server, Zone } from "@/types/domain";
 
 interface Props {
@@ -33,7 +33,7 @@ export function Facture({ check, zone, tableText, server, spotLabel, currency }:
   return (
     <div id="facture-receipt" className="mx-auto max-w-xs text-black">
       <div className="text-center">
-        <div className="text-2xl font-extrabold tracking-wide">CAISSE</div>
+        <div className="text-2xl font-extrabold tracking-wide">{BUSINESS_NAME}</div>
         <div className="text-sm font-bold uppercase tracking-widest">Facture</div>
       </div>
 
