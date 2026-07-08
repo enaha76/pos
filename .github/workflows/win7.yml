@@ -1,0 +1,39 @@
+name: Build Windows 7 desktop app (Slint)
+
+# Native Win7 build (Slint + embedded SQLite, no WebView2). Built with Rust
+# 1.77.x on the standard MSVC target so the .exe runs on Windows 7.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "win7/**"
+      - "src-tauri/migrations/**"
+      - ".github/workflows/win7.yml"
+  workflow_dispatch:
+
+jobs:
+  win7:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: win7
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.77.2
+        shell: bash
+        run: rustup toolchain install 1.77.2 --profile minimal --no-self-update
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: win7
+
+      - name: Build (release)
+        run: cargo +1.77.2 build --release
+
+      - name: Upload exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: caisse-win7
+          path: win7/target/release/caisse-win7.exe
+          if-no-files-found: error

@@ -1,0 +1,163 @@
+import { Button, ScrollView } from "std-widgets.slint";
+
+export struct ProductItem {
+    id: string,
+    name: string,
+    price: int,
+}
+
+export struct CheckLine {
+    name: string,
+    qty: int,
+    total: int,
+}
+
+export component MainWindow inherits Window {
+    title: "Caisse — Café Adalya";
+    preferred-width: 1000px;
+    preferred-height: 680px;
+    min-width: 800px;
+    min-height: 560px;
+
+    // ---- driven from Rust ----
+    in property <bool> logged-in: false;
+    in property <string> login-error;
+    in property <string> operator-name;
+    in property <[ProductItem]> products;
+    in property <[CheckLine]> lines;
+    in property <int> total;
+    in property <string> currency: "MRU";
+    in property <string> status;
+
+    // ---- to Rust ----
+    callback login(string);
+    callback add-product(string);
+    callback pay();
+    callback print-facture();
+    callback logout();
+
+    // internal keypad buffer
+    property <string> pin;
+
+    // =================== LOGIN ===================
+    if !root.logged-in : Rectangle {
+        background: #eef1f5;
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                alignment: center;
+                VerticalLayout {
+                    width: 300px;
+                    spacing: 10px;
+
+                    Text { text: "Café Adalya"; font-size: 30px; font-weight: 800; horizontal-alignment: center; }
+                    Text { text: "Caisse — connexion"; color: #6a7384; horizontal-alignment: center; }
+
+                    Rectangle {
+                        height: 56px;
+                        border-radius: 10px;
+                        background: white;
+                        border-width: 1px;
+                        border-color: #c4ccd8;
+                        Text {
+                            text: root.pin == "" ? "— — — —" : root.pin;
+                            font-size: 24px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                    Text { text: root.login-error; color: #dc2626; horizontal-alignment: center; }
+
+                    // keypad
+                    HorizontalLayout { spacing: 8px;
+                        Button { text: "1"; height: 58px; clicked => { root.pin = root.pin + "1"; } }
+                        Button { text: "2"; height: 58px; clicked => { root.pin = root.pin + "2"; } }
+                        Button { text: "3"; height: 58px; clicked => { root.pin = root.pin + "3"; } }
+                    }
+                    HorizontalLayout { spacing: 8px;
+                        Button { text: "4"; height: 58px; clicked => { root.pin = root.pin + "4"; } }
+                        Button { text: "5"; height: 58px; clicked => { root.pin = root.pin + "5"; } }
+                        Button { text: "6"; height: 58px; clicked => { root.pin = root.pin + "6"; } }
+                    }
+                    HorizontalLayout { spacing: 8px;
+                        Button { text: "7"; height: 58px; clicked => { root.pin = root.pin + "7"; } }
+                        Button { text: "8"; height: 58px; clicked => { root.pin = root.pin + "8"; } }
+                        Button { text: "9"; height: 58px; clicked => { root.pin = root.pin + "9"; } }
+                    }
+                    HorizontalLayout { spacing: 8px;
+                        Button { text: "Effacer"; height: 58px; clicked => { root.pin = ""; } }
+                        Button { text: "0"; height: 58px; clicked => { root.pin = root.pin + "0"; } }
+                        Button { text: "Valider"; height: 58px; clicked => { root.login(root.pin); root.pin = ""; } }
+                    }
+                }
+            }
+        }
+    }
+
+    // =================== MAIN ===================
+    if root.logged-in : Rectangle {
+        background: #eef1f5;
+        VerticalLayout {
+            // top bar
+            Rectangle {
+                height: 60px;
+                background: white;
+                HorizontalLayout {
+                    padding: 14px;
+                    spacing: 12px;
+                    Text { text: "Café Adalya — Caisse"; font-size: 18px; font-weight: 800; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    Text { text: root.operator-name; color: #6a7384; vertical-alignment: center; }
+                    Button { text: "Déconnexion"; clicked => { root.logout(); } }
+                }
+            }
+
+            HorizontalLayout {
+                // ---- product list ----
+                ScrollView {
+                    horizontal-stretch: 1;
+                    VerticalLayout {
+                        padding: 10px;
+                        spacing: 6px;
+                        for p in root.products : Button {
+                            height: 54px;
+                            text: "\{p.name}   —   \{p.price} \{root.currency}";
+                            clicked => { root.add-product(p.id); }
+                        }
+                    }
+                }
+
+                // ---- check panel ----
+                Rectangle {
+                    width: 360px;
+                    background: white;
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 8px;
+                        Text { text: "Note en cours"; font-size: 18px; font-weight: 800; }
+
+                        ScrollView {
+                            vertical-stretch: 1;
+                            VerticalLayout {
+                                spacing: 4px;
+                                for l in root.lines : HorizontalLayout {
+                                    Text { text: "\{l.qty} × \{l.name}"; horizontal-stretch: 1; }
+                                    Text { text: "\{l.total} \{root.currency}"; }
+                                }
+                            }
+                        }
+
+                        Rectangle { height: 1px; background: #c4ccd8; }
+                        HorizontalLayout {
+                            Text { text: "TOTAL"; font-size: 20px; font-weight: 800; horizontal-stretch: 1; }
+                            Text { text: "\{root.total} \{root.currency}"; font-size: 20px; font-weight: 800; }
+                        }
+                        Button { text: "Imprimer la facture"; height: 46px; clicked => { root.print-facture(); } }
+                        Button { text: "Payer (Espèces)"; height: 56px; clicked => { root.pay(); } }
+                        Text { text: root.status; color: #16a34a; horizontal-alignment: center; wrap: word-wrap; }
+                    }
+                }
+            }
+        }
+    }
+}

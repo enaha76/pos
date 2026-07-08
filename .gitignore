@@ -16,5 +16,8 @@ src-tauri/gen
 src-tauri/icons
 app-icon.png
 
+# win7 native (slint) build
+win7/target
+
 # verification screenshots
 /*.png
