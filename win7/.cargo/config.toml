@@ -1,11 +1,9 @@
-# Build for the tier-3 Windows 7 target, compiling std from source so we can use
-# a current Rust toolchain (needed by modern crates) while still running on Win7.
-[build]
-target = "x86_64-win7-windows-msvc"
-
-[unstable]
-build-std = ["std", "panic_abort"]
-
-# Static CRT → self-contained .exe, no VC++ redistributable needed on Windows 7.
+# Static CRT for the Windows 7 target only → self-contained .exe, no VC++
+# redistributable. This block applies ONLY when building for that target, so
+# native host builds (e.g. Linux for local testing) are unaffected.
+#
+# The Win7 target selection + build-std live in the CI command line
+# (.github/workflows/win7.yml), not here, so `cargo run` on Linux/Windows
+# builds natively for quick local testing.
 [target.x86_64-win7-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]

@@ -1,8 +1,8 @@
 name: Build Windows 7 desktop app (Slint)
 
-# Native Win7 build (Slint + embedded SQLite, no WebView2). Uses current nightly
-# Rust with the tier-3 x86_64-win7-windows-msvc target (std built from source),
-# so modern crates compile and the .exe still runs on Windows 7.
+# Two builds of the same app:
+#  - win7:  the real target — Windows 7 exe (tier-3 target, std from source).
+#  - linux: a native Linux binary so you can preview/test on Ubuntu first.
 on:
   push:
     branches: [main]
@@ -32,11 +32,45 @@ jobs:
           workspaces: win7
 
       - name: Build (release, Windows 7 target)
-        run: cargo +nightly build --release
+        run: cargo +nightly build --release --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
 
       - name: Upload exe
         uses: actions/upload-artifact@v4
         with:
           name: caisse-win7
           path: win7/target/x86_64-win7-windows-msvc/release/caisse-win7.exe
+          if-no-files-found: error
+
+  # Native Linux build — download this to preview the exact same app on Ubuntu
+  # before trying it on the Windows 7 POS.
+  linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: win7
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Slint build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig-1-dev libxcb1-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libwayland-dev
+
+      - name: Install Rust nightly
+        shell: bash
+        run: rustup toolchain install nightly --profile minimal --no-self-update
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: win7
+
+      - name: Build (release, native Linux)
+        run: cargo +nightly build --release --target x86_64-unknown-linux-gnu
+
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: caisse-linux
+          path: win7/target/x86_64-unknown-linux-gnu/release/caisse-win7
           if-no-files-found: error
