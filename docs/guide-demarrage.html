@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Guide de démarrage — Caisse · Café Adalya</title>
+<style>
+  :root {
+    --ink: #1b2230;
+    --muted: #5b6577;
+    --line: #d3d9e2;
+    --blue: #2563eb;
+    --amber: #b45309;
+    --amber-bg: #fdf3e3;
+    --paper: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #eceff3; color: var(--ink); }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+    font-size: 12.5px;
+    line-height: 1.5;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .sheet {
+    max-width: 800px;
+    margin: 24px auto;
+    background: var(--paper);
+    padding: 34px 40px 30px;
+    box-shadow: 0 2px 18px rgba(0,0,0,.12);
+  }
+
+  /* Header */
+  .head {
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 3px solid var(--ink); padding-bottom: 14px; margin-bottom: 20px;
+  }
+  .brand { font-size: 26px; font-weight: 800; letter-spacing: .5px; }
+  .brand small { display: block; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 2px; }
+  .head .title { text-align: right; }
+  .head .title b { font-size: 15px; font-weight: 700; }
+  .head .title span { display: block; font-size: 11px; color: var(--muted); }
+
+  h2 {
+    font-size: 14px; margin: 22px 0 10px; padding-bottom: 5px;
+    border-bottom: 1px solid var(--line); color: var(--blue);
+    display: flex; align-items: center; gap: 9px;
+  }
+  h2 .n {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 999px;
+    background: var(--blue); color: #fff; font-size: 12px; font-weight: 800; flex: none;
+  }
+  section { break-inside: avoid; page-break-inside: avoid; }
+
+  ol.steps { margin: 0; padding-left: 20px; }
+  ol.steps li { margin: 5px 0; }
+  ul.plain { margin: 6px 0; padding-left: 18px; }
+  ul.plain li { margin: 3px 0; }
+  b.k { color: var(--ink); }
+  .path {
+    font-weight: 700; color: var(--ink);
+    background: #eef2f8; border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 6px; white-space: nowrap; font-size: 11.5px;
+  }
+
+  /* Callout */
+  .callout {
+    border: 1px solid #eab676; background: var(--amber-bg);
+    border-radius: 8px; padding: 12px 14px; margin: 12px 0;
+  }
+  .callout .t { font-weight: 800; color: var(--amber); margin-bottom: 5px; font-size: 12.5px; }
+  .codes { display: flex; gap: 26px; margin-top: 4px; }
+  .codes div span { display: block; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .codes div b { font-size: 20px; font-weight: 800; letter-spacing: 3px; }
+
+  .cols { display: flex; gap: 26px; }
+  .cols > div { flex: 1; }
+
+  .foot {
+    margin-top: 24px; padding-top: 10px; border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted);
+  }
+
+  @media print {
+    html, body { background: #fff; }
+    .sheet { box-shadow: none; margin: 0; max-width: none; padding: 0; }
+    @page { size: A4; margin: 16mm 15mm; }
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="brand">Café Adalya <small>CAISSE</small></div>
+    <div class="title"><b>Guide de démarrage</b><span>Application de caisse — Windows</span></div>
+  </div>
+
+  <p style="margin:0 0 4px;color:var(--muted)">
+    Bienvenue&nbsp;! Ce guide vous accompagne de l'installation à la première vente.
+    L'application fonctionne <b class="k">hors&#8209;ligne</b> sur un seul ordinateur&nbsp;;
+    toutes les données restent sur cette machine.
+  </p>
+
+  <section>
+    <h2><span class="n">1</span> Installation</h2>
+    <ol class="steps">
+      <li>Système requis&nbsp;: <b class="k">Windows&nbsp;10 ou Windows&nbsp;11</b>.</li>
+      <li>Lancez le fichier <b class="k">Caisse&nbsp;— setup.exe</b> et suivez l'assistant.</li>
+      <li>Ouvrez <b class="k">Caisse</b> depuis le menu Démarrer ou le raccourci du Bureau.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2><span class="n">2</span> Première connexion</h2>
+    <p style="margin:0">Deux profils existent au départ. Saisissez le code puis validez.</p>
+    <div class="callout">
+      <div class="t">Codes par défaut — à changer immédiatement</div>
+      <div class="codes">
+        <div><span>Propriétaire (Admin)</span><b>9999</b></div>
+        <div><span>Caissier</span><b>1111</b></div>
+      </div>
+    </div>
+    <p style="margin:0">
+      Connectez-vous d'abord en <b class="k">Propriétaire</b> pour tout configurer.
+      Le <b class="k">Caissier</b> ne voit que l'écran des commandes.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="n">3</span> Configuration initiale <span style="font-weight:600;color:var(--muted);font-size:11px">(en Propriétaire)</span></h2>
+    <ol class="steps">
+      <li><b class="k">Changez les deux codes</b> — <span class="path">Configuration → Utilisateurs</span>.
+        Remplacez 9999 et 1111 par vos propres codes. Vous pouvez ajouter d'autres caissiers.</li>
+      <li><b class="k">Ajoutez vos serveurs</b> — <span class="path">Configuration → Serveurs</span>.
+        Renommez ou ajoutez le personnel réel&nbsp;; réglez les horaires des services.</li>
+      <li><b class="k">Définissez vos zones</b> — <span class="path">Configuration → Zones</span>.
+        Créez vos espaces (salle, terrasse…) et leurs tables.</li>
+      <li><b class="k">Vérifiez le menu</b> — <span class="path">Configuration → Produits &amp; catégories</span>.
+        Le menu du Café&nbsp;Adalya est déjà chargé&nbsp;; ajustez les prix ou masquez un article.</li>
+      <li><b class="k">Réglages</b> — confirmez la devise <b class="k">MRU</b> et le libellé d'emplacement.</li>
+      <li><i>(facultatif)</i> <b class="k">Affectations</b> — indiquez quel serveur travaille dans quelle zone, par service et par jour.</li>
+    </ol>
+  </section>
+
+  <div class="cols">
+    <section style="flex:1">
+      <h2><span class="n">4</span> Prendre une commande</h2>
+      <ol class="steps">
+        <li>Connectez-vous en <b class="k">Caissier</b>.</li>
+        <li>Choisissez la <b class="k">zone</b> (et la table), puis le <b class="k">serveur</b>.</li>
+        <li>Touchez les plats pour les ajouter à la note.</li>
+        <li>Appuyez sur <b class="k">Envoyer</b> pour transmettre en cuisine.</li>
+      </ol>
+      <ul class="plain">
+        <li><b class="k">Annuler</b> un article avant préparation (sans frais).</li>
+        <li><b class="k">Offrir</b> un article après préparation (offert).</li>
+        <li>Plusieurs notes peuvent rester ouvertes en même temps.</li>
+      </ul>
+    </section>
+
+    <section style="flex:1">
+      <h2><span class="n">5</span> Facture &amp; encaissement</h2>
+      <ol class="steps">
+        <li><b class="k">Imprimer la facture</b> pour remettre l'addition au client.</li>
+        <li>Appuyez sur <b class="k">Payer</b>, puis choisissez le mode&nbsp;:
+          <b class="k">Espèces</b> ou <b class="k">Portefeuille</b>.</li>
+        <li>La note passe en <b class="k">Payé</b> et se ferme.</li>
+      </ol>
+      <p style="margin:6px 0 0;color:var(--muted)">
+        Un client part sans payer&nbsp;? Utilisez <b class="k">Clôturer impayé</b>&nbsp;: la note est
+        attribuée au serveur responsable et signalée dans le rapport.
+      </p>
+    </section>
+  </div>
+
+  <section>
+    <h2><span class="n">6</span> Rapports &amp; clôture de journée</h2>
+    <p style="margin:0 0 4px">Réservé au Propriétaire — <span class="path">Rapports</span>.</p>
+    <ul class="plain">
+      <li><b class="k">Aujourd'hui</b>&nbsp;: ventes, notes payées, impayés (avec le serveur responsable), ventes par serveur.</li>
+      <li><b class="k">Global</b>&nbsp;: totaux par zone, par serveur, annulations &amp; offerts.</li>
+      <li><b class="k">Clôturer la journée</b> imprime un récapitulatif à conserver ou signer.</li>
+    </ul>
+  </section>
+
+  <div class="foot">
+    <span>Café Adalya — Caisse&nbsp;v0.1.0</span>
+    <span>Astuce&nbsp;: en cas de doute, le Propriétaire peut tout modifier dans <b>Configuration</b>.</span>
+  </div>
+
+</div>
+</body>
+</html>
