@@ -3,9 +3,9 @@ import { ScrollView } from "std-widgets.slint";
 export struct ProductItem { id: string, name: string, price: int, color: color }
 export struct CategoryChip { id: string, name: string, color: color }
 export struct GridRow { a: ProductItem, b: ProductItem, c: ProductItem, count: int }
-export struct CheckLine { name: string, qty: int, total: int }
+export struct CheckLine { item_id: string, name: string, qty: int, total: int, state: string }
+export struct ReasonItem { id: string, label: string }
 
-// A styled product card (colored top bar + name + price in the category colour).
 component ProductCard inherits Rectangle {
     in property <ProductItem> product;
     callback clicked;
@@ -15,7 +15,6 @@ component ProductCard inherits Rectangle {
     background: white;
     border-width: 1px;
     border-color: #c4ccd8;
-
     Rectangle { x: 0; y: 0; width: parent.width; height: 6px; background: product.color; }
     VerticalLayout {
         padding: 12px;
@@ -27,7 +26,6 @@ component ProductCard inherits Rectangle {
     TouchArea { clicked => { root.clicked(); } }
 }
 
-// A rounded category pill with a colored dot; active gets a blue fill.
 component Pill inherits Rectangle {
     in property <string> label;
     in property <color> dot;
@@ -49,7 +47,6 @@ component Pill inherits Rectangle {
     TouchArea { clicked => { root.clicked(); } }
 }
 
-// A big flat key for the login keypad.
 component Key inherits Rectangle {
     in property <string> label;
     in property <color> fill: #eef1f5;
@@ -60,6 +57,30 @@ component Key inherits Rectangle {
     border-radius: 10px;
     background: fill;
     Text { text: label; font-size: 20px; font-weight: 700; color: ink; horizontal-alignment: center; vertical-alignment: center; }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+// A filled action button (used for send / pay / actions).
+component ActionBtn inherits Rectangle {
+    in property <string> label;
+    in property <color> fill;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 52px;
+    horizontal-stretch: 1;
+    border-radius: 10px;
+    background: enabled ? fill : #cbd5e1;
+    Text { text: label; color: white; font-size: 16px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+    TouchArea { clicked => { if (root.enabled) { root.clicked(); } } }
+}
+
+component ReasonBtn inherits Rectangle {
+    in property <string> label;
+    callback clicked;
+    height: 48px;
+    border-radius: 8px;
+    background: #eef1f5;
+    Text { text: label; vertical-alignment: center; horizontal-alignment: center; }
     TouchArea { clicked => { root.clicked(); } }
 }
 
@@ -77,12 +98,26 @@ export component MainWindow inherits Window {
     in property <[GridRow]> grid;
     in property <[CheckLine]> lines;
     in property <int> total;
+    in property <int> comps;
+    in property <int> ticket;
+    in property <bool> has-check;
+    in property <bool> can-send;
+    in property <bool> can-pay;
     in property <string> status;
+    in property <[ReasonItem]> void-reasons;
+    in property <[ReasonItem]> comp-reasons;
+    in property <[ReasonItem]> unpaid-reasons;
     in-out property <string> active-cat: "all";
+    in-out property <string> selected-item;
+    in-out property <string> selected-state;
+    in-out property <string> modal-kind;
 
     callback login(string);
     callback select-category(string);
     callback add-product(string);
+    callback inc-line(string, int);
+    callback send();
+    callback apply-reason(string, string, string);
     callback pay(string);
     callback print-facture();
     callback logout();
@@ -145,7 +180,6 @@ export component MainWindow inherits Window {
     if root.logged-in : Rectangle {
         background: #eef1f5;
         VerticalLayout {
-            // top bar
             Rectangle {
                 height: 60px;
                 background: white;
@@ -203,62 +237,148 @@ export component MainWindow inherits Window {
 
                 // ---- right: check panel ----
                 Rectangle {
-                    width: 360px;
+                    width: 370px;
                     background: white;
                     VerticalLayout {
                         padding: 16px;
-                        spacing: 10px;
-                        Text { text: "Note en cours"; font-size: 18px; font-weight: 800; color: #d97706; }
+                        spacing: 8px;
+                        Text {
+                            text: root.has-check ? "Ticket nº \{root.ticket}" : "Nouvelle note";
+                            font-size: 18px; font-weight: 800; color: #d97706;
+                        }
+
                         ScrollView {
                             vertical-stretch: 1;
                             VerticalLayout {
-                                spacing: 6px;
-                                for l in root.lines : HorizontalLayout {
-                                    spacing: 10px;
-                                    Rectangle {
-                                        width: 34px;
-                                        height: 34px;
-                                        border-radius: 8px;
-                                        background: #e6eaf0;
-                                        Text { text: "\{l.qty}"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                spacing: 4px;
+                                for l in root.lines : Rectangle {
+                                    height: 54px;
+                                    border-radius: 8px;
+                                    background: root.selected-item == l.item_id ? #e6eaf0 : white;
+                                    border-width: root.selected-item == l.item_id ? 2px : 1px;
+                                    border-color: root.selected-item == l.item_id ? #2563eb : #eef1f5;
+                                    HorizontalLayout {
+                                        padding: 6px;
+                                        spacing: 10px;
+                                        Rectangle {
+                                            width: 34px; height: 34px; border-radius: 8px; background: #e6eaf0;
+                                            Text { text: "\{l.qty}"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                        }
+                                        VerticalLayout {
+                                            horizontal-stretch: 1;
+                                            Text { text: l.name; font-weight: 600; }
+                                            Text {
+                                                font-size: 12px;
+                                                text: l.state == "HELD" ? "En attente" : l.state == "SENT" ? "Envoyé" : l.state == "VOID" ? "Annulé" : "Offert";
+                                                color: l.state == "HELD" ? #d97706 : l.state == "SENT" ? #16a34a : l.state == "VOID" ? #dc2626 : #7c3aed;
+                                            }
+                                        }
+                                        Text {
+                                            text: "\{l.total} MRU"; vertical-alignment: center; font-weight: 700;
+                                            color: (l.state == "VOID" || l.state == "COMP") ? #6a7384 : #1b2230;
+                                        }
                                     }
-                                    Text { text: l.name; vertical-alignment: center; horizontal-stretch: 1; }
-                                    Text { text: "\{l.total} MRU"; vertical-alignment: center; font-weight: 700; }
+                                    TouchArea { clicked => { root.selected-item = l.item_id; root.selected-state = l.state; } }
                                 }
                             }
                         }
+
+                        // contextual line actions
+                        if root.selected-state == "HELD" : HorizontalLayout {
+                            spacing: 8px;
+                            Rectangle { width: 48px; height: 44px; border-radius: 8px; background: #e6eaf0;
+                                Text { text: "-"; font-size: 22px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                                TouchArea { clicked => { root.inc-line(root.selected-item, -1); } }
+                            }
+                            Rectangle { width: 48px; height: 44px; border-radius: 8px; background: #e6eaf0;
+                                Text { text: "+"; font-size: 22px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                                TouchArea { clicked => { root.inc-line(root.selected-item, 1); } }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            Rectangle { width: 110px; height: 44px; border-radius: 8px; background: #dc2626;
+                                Text { text: "Annuler"; color: white; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                                TouchArea { clicked => { root.modal-kind = "void"; } }
+                            }
+                        }
+                        if root.selected-state == "SENT" : Rectangle {
+                            height: 44px; border-radius: 8px; background: #7c3aed;
+                            Text { text: "Offrir"; color: white; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { root.modal-kind = "comp"; } }
+                        }
+
                         Rectangle { height: 1px; background: #c4ccd8; }
                         HorizontalLayout {
                             Text { text: "TOTAL"; font-size: 20px; font-weight: 800; horizontal-stretch: 1; vertical-alignment: center; }
                             Text { text: "\{root.total} MRU"; font-size: 22px; font-weight: 800; }
                         }
+
+                        ActionBtn { label: "Envoyer en cuisine"; fill: #16a34a; enabled: root.can-send; clicked => { root.send(); } }
                         Rectangle {
-                            height: 46px;
-                            border-radius: 10px;
-                            background: #e6eaf0;
+                            height: 44px; border-radius: 10px; background: #e6eaf0;
                             Text { text: "Imprimer la facture"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
                             TouchArea { clicked => { root.print-facture(); } }
                         }
                         HorizontalLayout {
                             spacing: 10px;
-                            Rectangle {
-                                height: 58px;
-                                border-radius: 10px;
-                                background: #16a34a;
-                                horizontal-stretch: 1;
-                                Text { text: "Espèces"; color: white; font-size: 17px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
-                                TouchArea { clicked => { root.pay("Espèces"); } }
-                            }
-                            Rectangle {
-                                height: 58px;
-                                border-radius: 10px;
-                                background: #2563eb;
-                                horizontal-stretch: 1;
-                                Text { text: "Portefeuille"; color: white; font-size: 17px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
-                                TouchArea { clicked => { root.pay("Portefeuille"); } }
-                            }
+                            ActionBtn { label: "Espèces"; fill: #16a34a; enabled: root.can-pay; clicked => { root.pay("Espèces"); } }
+                            ActionBtn { label: "Portefeuille"; fill: #2563eb; enabled: root.can-pay; clicked => { root.pay("Portefeuille"); } }
+                        }
+                        if root.has-check : Rectangle {
+                            height: 34px;
+                            Text { text: "Clôturer impayé"; color: #6a7384; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { root.modal-kind = "unpaid"; } }
                         }
                         Text { text: root.status; color: #16a34a; horizontal-alignment: center; wrap: word-wrap; }
+                    }
+                }
+            }
+        }
+    }
+
+    // ===================== REASON MODAL =====================
+    if root.modal-kind != "" : Rectangle {
+        background: #00000088;
+        TouchArea { clicked => { root.modal-kind = ""; } }
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 380px;
+                    height: 440px;
+                    background: white;
+                    border-radius: 14px;
+                    VerticalLayout {
+                        padding: 18px;
+                        spacing: 8px;
+                        Text {
+                            font-size: 18px; font-weight: 800;
+                            text: root.modal-kind == "void" ? "Annuler l'article" : root.modal-kind == "comp" ? "Offrir l'article" : "Clôturer la note impayée";
+                        }
+                        Text { text: "Choisissez un motif"; color: #6a7384; }
+                        ScrollView {
+                            vertical-stretch: 1;
+                            VerticalLayout {
+                                spacing: 6px;
+                                if root.modal-kind == "void" : VerticalLayout {
+                                    spacing: 6px;
+                                    for rz in root.void-reasons : ReasonBtn { label: rz.label; clicked => { root.apply-reason("void", root.selected-item, rz.id); root.modal-kind = ""; } }
+                                }
+                                if root.modal-kind == "comp" : VerticalLayout {
+                                    spacing: 6px;
+                                    for rz in root.comp-reasons : ReasonBtn { label: rz.label; clicked => { root.apply-reason("comp", root.selected-item, rz.id); root.modal-kind = ""; } }
+                                }
+                                if root.modal-kind == "unpaid" : VerticalLayout {
+                                    spacing: 6px;
+                                    for rz in root.unpaid-reasons : ReasonBtn { label: rz.label; clicked => { root.apply-reason("unpaid", root.selected-item, rz.id); root.modal-kind = ""; } }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            height: 44px; border-radius: 8px; background: #e6eaf0;
+                            Text { text: "Fermer"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                            TouchArea { clicked => { root.modal-kind = ""; } }
+                        }
                     }
                 }
             }

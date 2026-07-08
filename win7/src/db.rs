@@ -1,8 +1,8 @@
 //! Embedded SQLite layer for the native Windows 7 build.
 //! Reuses the exact same schema, seed and menu as the Tauri build
-//! (../../src-tauri/migrations/*.sql) so the two stay in sync.
+//! (../../src-tauri/migrations/*.sql) and mirrors its check lifecycle.
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -31,12 +31,19 @@ pub struct UserRow {
     pub role: String,
 }
 
-/// One line on the current check (also used to build the facture).
-pub struct SaleLine {
-    pub product_id: String,
+pub struct CheckItem {
+    pub item_id: String,
     pub name: String,
     pub qty: i64,
     pub unit_price: i64,
+    pub state: String, // HELD | SENT | VOID | COMP
+}
+
+pub struct CheckData {
+    pub check_id: String,
+    pub ticket_number: i64,
+    pub status: String,
+    pub items: Vec<CheckItem>,
 }
 
 pub fn sha256_hex(s: &str) -> String {
@@ -45,7 +52,6 @@ pub fn sha256_hex(s: &str) -> String {
     h.finalize().iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// Per-user writable data dir: %APPDATA%\CafeAdalyaCaisse (fallback: current dir).
 fn data_dir() -> PathBuf {
     let base = std::env::var("APPDATA")
         .map(PathBuf::from)
@@ -64,6 +70,8 @@ fn new_id(prefix: &str) -> String {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{}_{:x}{:x}", prefix, nanos, n)
 }
+
+const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
 impl Db {
     pub fn open() -> rusqlite::Result<Self> {
@@ -88,13 +96,10 @@ impl Db {
         Ok(())
     }
 
-    /// Seed PINs are plaintext; hash any that aren't already 64-hex SHA-256.
     fn hash_seed_pins(&self) -> rusqlite::Result<()> {
         let rows: Vec<(String, String)> = {
             let mut stmt = self.conn.prepare("select user_id, pin_hash from users")?;
-            let it = stmt.query_map([], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            })?;
+            let it = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
             it.collect::<rusqlite::Result<Vec<_>>>()?
         };
         for (uid, ph) in rows {
@@ -155,59 +160,209 @@ impl Db {
         it.collect()
     }
 
-    /// Persist a paid check (mirrors the Tauri `pay` flow). Returns the ticket number.
-    pub fn record_sale(&self, lines: &[SaleLine], method: &str, total: i64) -> rusqlite::Result<i64> {
+    pub fn reason_codes(&self, kind: &str) -> rusqlite::Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("select reason_id, label from reason_codes where kind = ?1 and active = 1")?;
+        let it = stmt.query_map(params![kind], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        it.collect()
+    }
+
+    // ---- check lifecycle (mirrors src/lib/apiSqlite.ts) ----
+
+    pub fn create_check(&self) -> rusqlite::Result<String> {
         let ticket: i64 =
             self.conn
-                .query_row("select coalesce(max(ticket_number),0)+1 from checks", [], |r| {
-                    r.get(0)
-                })?;
-        let zone: String =
-            self.conn
-                .query_row("select zone_id from zones order by display_order limit 1", [], |r| {
-                    r.get(0)
-                })?;
+                .query_row("select coalesce(max(ticket_number),0)+1 from checks", [], |r| r.get(0))?;
+        let zone: String = self.conn.query_row(
+            "select zone_id from zones where active = 1 order by display_order limit 1",
+            [],
+            |r| r.get(0),
+        )?;
         let server: String =
             self.conn
-                .query_row("select server_id from servers where active = 1 limit 1", [], |r| {
+                .query_row("select server_id from servers where active = 1 limit 1", [], |r| r.get(0))?;
+        let id = new_id("chk");
+        self.conn.execute(
+            &format!(
+                "insert into checks (check_id, ticket_number, zone_id, server_id, status, opened_at) \
+                 values (?1, ?2, ?3, ?4, 'OPEN', {NOW})"
+            ),
+            params![id, ticket, zone, server],
+        )?;
+        Ok(id)
+    }
+
+    pub fn add_item(&self, check_id: &str, product_id: &str, qty: i64) -> rusqlite::Result<()> {
+        let (name, price): (String, i64) = self.conn.query_row(
+            "select name, price from products where product_id = ?1 and active = 1",
+            params![product_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let server: String =
+            self.conn
+                .query_row("select server_id from checks where check_id = ?1", params![check_id], |r| {
                     r.get(0)
                 })?;
-        let check_id = new_id("chk");
-        self.conn.execute(
-            "insert into checks (check_id, ticket_number, zone_id, server_id, status, opened_at, closed_at) \
-             values (?1, ?2, ?3, ?4, 'CLOSED_PAID', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
-            params![check_id, ticket, zone, server],
-        )?;
-        for l in lines {
+        let existing: Option<String> = self
+            .conn
+            .query_row(
+                "select item_id from order_items where check_id = ?1 and name = ?2 and state = 'HELD' order by created_at limit 1",
+                params![check_id, name],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match existing {
+            Some(item_id) => {
+                self.conn.execute(
+                    "update order_items set qty = qty + ?2 where item_id = ?1",
+                    params![item_id, qty],
+                )?;
+            }
+            None => {
+                self.conn.execute(
+                    &format!(
+                        "insert into order_items (item_id, check_id, server_id, product_id, name, qty, unit_price, state, created_at) \
+                         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'HELD', {NOW})"
+                    ),
+                    params![new_id("itm"), check_id, server, product_id, name, qty, price],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Adjust a held line's quantity by `delta`; deletes it at 0 or below.
+    pub fn inc_item(&self, item_id: &str, delta: i64) -> rusqlite::Result<()> {
+        let q: i64 = self
+            .conn
+            .query_row(
+                "select qty from order_items where item_id = ?1 and state = 'HELD'",
+                params![item_id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        let nq = q + delta;
+        if nq <= 0 {
+            self.conn
+                .execute("delete from order_items where item_id = ?1 and state = 'HELD'", params![item_id])?;
+        } else {
             self.conn.execute(
-                "insert into order_items (item_id, check_id, server_id, product_id, name, qty, unit_price, state, created_at) \
-                 values (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'SENT', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
-                params![new_id("itm"), check_id, server, l.product_id, l.name, l.qty, l.unit_price],
+                "update order_items set qty = ?2 where item_id = ?1 and state = 'HELD'",
+                params![item_id, nq],
             )?;
         }
-        self.conn.execute(
-            "insert into payments (payment_id, check_id, method, amount, paid_at) \
-             values (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
-            params![new_id("pay"), check_id, method, total],
+        Ok(())
+    }
+
+    pub fn send(&self, check_id: &str) -> rusqlite::Result<()> {
+        let n = self.conn.execute(
+            "update order_items set state = 'SENT' where check_id = ?1 and state = 'HELD'",
+            params![check_id],
         )?;
+        if n > 0 {
+            self.conn
+                .execute("update checks set status = 'IN_PROGRESS' where check_id = ?1", params![check_id])?;
+        }
+        Ok(())
+    }
+
+    pub fn void_item(&self, item_id: &str, reason_id: &str) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "update order_items set state = 'VOID', reason_id = ?2 where item_id = ?1",
+            params![item_id, reason_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn comp_item(&self, item_id: &str, reason_id: &str) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "update order_items set state = 'COMP', reason_id = ?2 where item_id = ?1",
+            params![item_id, reason_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn pay(&self, check_id: &str, method: &str) -> rusqlite::Result<i64> {
+        let due: i64 = self.conn.query_row(
+            "select coalesce(sum(qty*unit_price),0) from order_items where check_id = ?1 and state in ('HELD','SENT')",
+            params![check_id],
+            |r| r.get(0),
+        )?;
+        self.conn.execute(
+            &format!(
+                "insert into payments (payment_id, check_id, method, amount, paid_at) values (?1, ?2, ?3, ?4, {NOW})"
+            ),
+            params![new_id("pay"), check_id, method, due],
+        )?;
+        self.conn.execute(
+            &format!("update checks set status = 'CLOSED_PAID', closed_at = {NOW} where check_id = ?1"),
+            params![check_id],
+        )?;
+        let ticket: i64 =
+            self.conn
+                .query_row("select ticket_number from checks where check_id = ?1", params![check_id], |r| {
+                    r.get(0)
+                })?;
         Ok(ticket)
+    }
+
+    pub fn close_unpaid(&self, check_id: &str, reason_id: &str) -> rusqlite::Result<()> {
+        self.conn.execute(
+            &format!("update checks set status = 'CLOSED_UNPAID', reason_id = ?2, closed_at = {NOW} where check_id = ?1"),
+            params![check_id, reason_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_check(&self, check_id: &str) -> rusqlite::Result<CheckData> {
+        let (ticket, status): (i64, String) = self.conn.query_row(
+            "select ticket_number, status from checks where check_id = ?1",
+            params![check_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let mut stmt = self.conn.prepare(
+            "select item_id, name, qty, unit_price, state from order_items where check_id = ?1 order by created_at",
+        )?;
+        let items = stmt
+            .query_map(params![check_id], |r| {
+                Ok(CheckItem {
+                    item_id: r.get(0)?,
+                    name: r.get(1)?,
+                    qty: r.get(2)?,
+                    unit_price: r.get(3)?,
+                    state: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(CheckData {
+            check_id: check_id.to_string(),
+            ticket_number: ticket,
+            status,
+            items,
+        })
     }
 }
 
 /// Build the facture text, write it to %TEMP%, and send it to the default
-/// printer via PowerShell (present on Windows 7). POC-level — a real thermal
-/// (ESC/POS) path can replace this once the client's printer is known.
-pub fn print_facture(lines: &[SaleLine], total: i64) -> std::io::Result<()> {
+/// printer via PowerShell (Windows only). POC-level formatting.
+pub fn print_facture(check: &CheckData) -> std::io::Result<()> {
     let mut s = String::new();
-    s.push_str("           CAFE ADALYA\n");
-    s.push_str("             FACTURE\n");
+    s.push_str("           CAFE ADALYA\n             FACTURE\n");
+    s.push_str(&format!("         Ticket no {}\n", check.ticket_number));
     s.push_str("--------------------------------\n");
-    for l in lines {
-        s.push_str(&format!(
-            "{:<24}{:>6}\n",
-            format!("{} x {}", l.qty, l.name),
-            l.qty * l.unit_price
-        ));
+    let mut total = 0i64;
+    for it in &check.items {
+        if it.state == "HELD" || it.state == "SENT" {
+            let line = it.qty * it.unit_price;
+            total += line;
+            s.push_str(&format!(
+                "{:<24}{:>6}\n",
+                format!("{} x {}", it.qty, it.name),
+                line
+            ));
+        }
     }
     s.push_str("--------------------------------\n");
     s.push_str(&format!("{:<24}{:>6}\n", "TOTAL (MRU)", total));

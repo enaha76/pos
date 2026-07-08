@@ -2,7 +2,7 @@
 // Console stays visible for now so first-run errors are easy to see on the POS.
 mod db;
 
-use db::{Db, SaleLine};
+use db::Db;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -23,7 +23,6 @@ fn accent_color(name: &str) -> slint::Color {
     slint::Color::from_rgb_u8(r, g, b)
 }
 
-/// Chunk products into rows of 3 for the card grid.
 fn make_grid(items: &[ProductItem]) -> Vec<GridRow> {
     let empty = ProductItem {
         id: Default::default(),
@@ -43,28 +42,86 @@ fn make_grid(items: &[ProductItem]) -> Vec<GridRow> {
     rows
 }
 
-fn set_grid(ui: &MainWindow, rows: Vec<GridRow>) {
-    ui.set_grid(Rc::new(slint::VecModel::from(rows)).into());
-}
-
-fn refresh_check(ui: &MainWindow, lines: &[SaleLine]) {
-    let rows: Vec<CheckLine> = lines
-        .iter()
-        .map(|l| CheckLine {
-            name: l.name.clone().into(),
-            qty: l.qty as i32,
-            total: (l.qty * l.unit_price) as i32,
+fn reason_model(db: &Db, kind: &str) -> slint::ModelRc<ReasonItem> {
+    let rows: Vec<ReasonItem> = db
+        .reason_codes(kind)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(id, label)| ReasonItem {
+            id: id.into(),
+            label: label.into(),
         })
         .collect();
-    ui.set_lines(Rc::new(slint::VecModel::from(rows)).into());
-    ui.set_total(lines.iter().map(|l| l.qty * l.unit_price).sum::<i64>() as i32);
+    Rc::new(slint::VecModel::from(rows)).into()
+}
+
+/// Load the current check (or an empty state) into the UI.
+fn refresh_check(ui: &MainWindow, db: &Db, current: &Option<String>) {
+    ui.set_selected_item("".into());
+    ui.set_selected_state("".into());
+    match current {
+        Some(cid) => match db.load_check(cid) {
+            Ok(check) => {
+                let mut subtotal = 0i64;
+                let mut held = 0i64;
+                let mut sent = 0i64;
+                let rows: Vec<CheckLine> = check
+                    .items
+                    .iter()
+                    .map(|it| {
+                        let line = it.qty * it.unit_price;
+                        match it.state.as_str() {
+                            "HELD" => {
+                                subtotal += line;
+                                held += it.qty;
+                            }
+                            "SENT" => {
+                                subtotal += line;
+                                sent += it.qty;
+                            }
+                            _ => {}
+                        }
+                        CheckLine {
+                            item_id: it.item_id.clone().into(),
+                            name: it.name.clone().into(),
+                            qty: it.qty as i32,
+                            total: line as i32,
+                            state: it.state.clone().into(),
+                        }
+                    })
+                    .collect();
+                ui.set_lines(Rc::new(slint::VecModel::from(rows)).into());
+                ui.set_total(subtotal as i32);
+                ui.set_ticket(check.ticket_number as i32);
+                ui.set_has_check(true);
+                ui.set_can_send(held > 0);
+                ui.set_can_pay(sent > 0 && held == 0);
+            }
+            Err(_) => set_empty(ui),
+        },
+        None => set_empty(ui),
+    }
+}
+
+fn set_empty(ui: &MainWindow) {
+    ui.set_lines(Rc::new(slint::VecModel::from(Vec::<CheckLine>::new())).into());
+    ui.set_total(0);
+    ui.set_ticket(0);
+    ui.set_has_check(false);
+    ui.set_can_send(false);
+    ui.set_can_pay(false);
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = Rc::new(Db::open()?);
     let ui = MainWindow::new()?;
 
-    // categories (+ colour lookup)
+    // reason codes
+    ui.set_void_reasons(reason_model(&db, "void"));
+    ui.set_comp_reasons(reason_model(&db, "comp"));
+    ui.set_unpaid_reasons(reason_model(&db, "unpaid"));
+
+    // categories + colour lookup
     let cats = db.categories()?;
     let mut cat_color: HashMap<String, slint::Color> = HashMap::new();
     let cat_items: Vec<CategoryChip> = cats
@@ -81,13 +138,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     ui.set_categories(Rc::new(slint::VecModel::from(cat_items)).into());
 
-    // products: keep all (with colour + category) for filtering, plus a lookup map
+    // products (all, with colour + category)
     let products = db.products()?;
-    let mut catalog: HashMap<String, (String, i64)> = HashMap::new();
     let all: Vec<(String, ProductItem)> = products
         .iter()
         .map(|p| {
-            catalog.insert(p.id.clone(), (p.name.clone(), p.price));
             let col = cat_color
                 .get(&p.category_id)
                 .copied()
@@ -104,11 +159,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect();
     let all = Rc::new(all);
-    let catalog = Rc::new(catalog);
+    ui.set_grid(Rc::new(slint::VecModel::from(make_grid(
+        &all.iter().map(|(_, it)| it.clone()).collect::<Vec<_>>(),
+    ))).into());
 
-    set_grid(&ui, make_grid(&all.iter().map(|(_, it)| it.clone()).collect::<Vec<_>>()));
-
-    let lines: Rc<RefCell<Vec<SaleLine>>> = Rc::new(RefCell::new(Vec::new()));
+    let current: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
 
     // ---- filter by category ----
     {
@@ -122,7 +177,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .filter(|(cid, _)| cat == "all" || *cid == cat)
                 .map(|(_, it)| it.clone())
                 .collect();
-            set_grid(&ui, make_grid(&filtered));
+            ui.set_grid(Rc::new(slint::VecModel::from(make_grid(&filtered))).into());
         });
     }
 
@@ -148,27 +203,94 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ---- add product ----
     {
         let w = ui.as_weak();
-        let lines = lines.clone();
-        let catalog = catalog.clone();
+        let db = db.clone();
+        let current = current.clone();
         ui.on_add_product(move |id| {
             let ui = w.unwrap();
-            let id = id.to_string();
-            if let Some((name, price)) = catalog.get(&id) {
-                {
-                    let mut ls = lines.borrow_mut();
-                    if let Some(l) = ls.iter_mut().find(|l| l.product_id == id) {
-                        l.qty += 1;
-                    } else {
-                        ls.push(SaleLine {
-                            product_id: id.clone(),
-                            name: name.clone(),
-                            qty: 1,
-                            unit_price: *price,
-                        });
+            let cid = {
+                let mut cur = current.borrow_mut();
+                if cur.is_none() {
+                    match db.create_check() {
+                        Ok(c) => *cur = Some(c),
+                        Err(e) => {
+                            ui.set_status(format!("Erreur : {e}").into());
+                            return;
+                        }
                     }
                 }
-                refresh_check(&ui, &lines.borrow());
-                ui.set_status("".into());
+                cur.clone().unwrap()
+            };
+            if let Err(e) = db.add_item(&cid, id.as_str(), 1) {
+                ui.set_status(format!("Erreur : {e}").into());
+                return;
+            }
+            refresh_check(&ui, &db, &Some(cid));
+            ui.set_status("".into());
+        });
+    }
+
+    // ---- quantity +/- ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        let current = current.clone();
+        ui.on_inc_line(move |item_id, delta| {
+            let ui = w.unwrap();
+            if db.inc_item(item_id.as_str(), delta as i64).is_err() {
+                return;
+            }
+            let cur = current.borrow().clone();
+            refresh_check(&ui, &db, &cur);
+            // keep the line selected so the user can keep adjusting
+            ui.set_selected_item(item_id);
+            ui.set_selected_state("HELD".into());
+        });
+    }
+
+    // ---- send to kitchen ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        let current = current.clone();
+        ui.on_send(move || {
+            let ui = w.unwrap();
+            let cur = current.borrow().clone();
+            if let Some(cid) = &cur {
+                let _ = db.send(cid);
+                ui.set_status("Articles envoyés en cuisine".into());
+            }
+            refresh_check(&ui, &db, &cur);
+        });
+    }
+
+    // ---- void / comp / close-unpaid (via reason modal) ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        let current = current.clone();
+        ui.on_apply_reason(move |kind, item_id, reason_id| {
+            let ui = w.unwrap();
+            let cur = current.borrow().clone();
+            match kind.as_str() {
+                "void" => {
+                    let _ = db.void_item(item_id.as_str(), reason_id.as_str());
+                    ui.set_status("Article annulé".into());
+                    refresh_check(&ui, &db, &cur);
+                }
+                "comp" => {
+                    let _ = db.comp_item(item_id.as_str(), reason_id.as_str());
+                    ui.set_status("Article offert".into());
+                    refresh_check(&ui, &db, &cur);
+                }
+                "unpaid" => {
+                    if let Some(cid) = &cur {
+                        let _ = db.close_unpaid(cid, reason_id.as_str());
+                    }
+                    *current.borrow_mut() = None;
+                    refresh_check(&ui, &db, &None);
+                    ui.set_status("Note clôturée impayée".into());
+                }
+                _ => {}
             }
         });
     }
@@ -176,44 +298,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ---- print facture ----
     {
         let w = ui.as_weak();
-        let lines = lines.clone();
+        let db = db.clone();
+        let current = current.clone();
         ui.on_print_facture(move || {
             let ui = w.unwrap();
-            let ls = lines.borrow();
-            if ls.is_empty() {
-                ui.set_status("Aucun article".into());
-                return;
-            }
-            let total: i64 = ls.iter().map(|l| l.qty * l.unit_price).sum();
-            match db::print_facture(&ls, total) {
-                Ok(_) => ui.set_status("Facture envoyée à l'impression".into()),
-                Err(e) => ui.set_status(format!("Impression : {e}").into()),
+            let cur = current.borrow().clone();
+            match cur.and_then(|cid| db.load_check(&cid).ok()) {
+                Some(check) => match db::print_facture(&check) {
+                    Ok(_) => ui.set_status("Facture envoyée à l'impression".into()),
+                    Err(e) => ui.set_status(format!("Impression : {e}").into()),
+                },
+                None => ui.set_status("Aucune note".into()),
             }
         });
     }
 
-    // ---- pay (with method) ----
+    // ---- pay ----
     {
         let w = ui.as_weak();
-        let lines = lines.clone();
         let db = db.clone();
+        let current = current.clone();
         ui.on_pay(move |method| {
             let ui = w.unwrap();
-            let total: i64;
-            let result;
-            {
-                let ls = lines.borrow();
-                if ls.is_empty() {
-                    ui.set_status("Aucun article".into());
+            let cur = current.borrow().clone();
+            let Some(cid) = cur else {
+                ui.set_status("Aucune note".into());
+                return;
+            };
+            let check = match db.load_check(&cid) {
+                Ok(c) => c,
+                Err(e) => {
+                    ui.set_status(format!("Erreur : {e}").into());
                     return;
                 }
-                total = ls.iter().map(|l| l.qty * l.unit_price).sum();
-                result = db.record_sale(&ls, method.as_str(), total);
+            };
+            let held = check.items.iter().filter(|i| i.state == "HELD").count();
+            let sent = check.items.iter().filter(|i| i.state == "SENT").count();
+            if sent == 0 {
+                ui.set_status("Rien à payer".into());
+                return;
             }
-            match result {
+            if held > 0 {
+                ui.set_status("Envoyez d'abord les articles".into());
+                return;
+            }
+            match db.pay(&cid, method.as_str()) {
                 Ok(ticket) => {
-                    lines.borrow_mut().clear();
-                    refresh_check(&ui, &lines.borrow());
+                    *current.borrow_mut() = None;
+                    refresh_check(&ui, &db, &None);
                     ui.set_status(format!("Payé ({method}) — ticket nº {ticket}").into());
                 }
                 Err(e) => ui.set_status(format!("Erreur : {e}").into()),
@@ -224,11 +356,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ---- logout ----
     {
         let w = ui.as_weak();
-        let lines = lines.clone();
+        let db = db.clone();
+        let current = current.clone();
         ui.on_logout(move || {
             let ui = w.unwrap();
-            lines.borrow_mut().clear();
-            refresh_check(&ui, &lines.borrow());
+            *current.borrow_mut() = None;
+            refresh_check(&ui, &db, &None);
             ui.set_status("".into());
             ui.set_logged_in(false);
         });
