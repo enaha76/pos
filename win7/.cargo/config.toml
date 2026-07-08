@@ -1,0 +1,4 @@
+# Statically link the MSVC C runtime so the .exe is fully self-contained —
+# no VC++ redistributable needed on a bare Windows 7 machine.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
