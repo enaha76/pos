@@ -17,6 +17,13 @@ pub struct Product {
     pub id: String,
     pub name: String,
     pub price: i64,
+    pub category_id: String,
+}
+
+pub struct Category {
+    pub id: String,
+    pub name: String,
+    pub color: String,
 }
 
 pub struct UserRow {
@@ -117,9 +124,23 @@ impl Db {
         }
     }
 
+    pub fn categories(&self) -> rusqlite::Result<Vec<Category>> {
+        let mut stmt = self
+            .conn
+            .prepare("select category_id, name, color from categories order by display_order")?;
+        let it = stmt.query_map([], |r| {
+            Ok(Category {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                color: r.get(2)?,
+            })
+        })?;
+        it.collect()
+    }
+
     pub fn products(&self) -> rusqlite::Result<Vec<Product>> {
         let mut stmt = self.conn.prepare(
-            "select p.product_id, p.name, p.price from products p \
+            "select p.product_id, p.name, p.price, p.category_id from products p \
              join categories c on c.category_id = p.category_id \
              where p.active = 1 order by c.display_order, p.name",
         )?;
@@ -128,6 +149,7 @@ impl Db {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 price: r.get(2)?,
+                category_id: r.get(3)?,
             })
         })?;
         it.collect()

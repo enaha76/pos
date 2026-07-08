@@ -1,100 +1,147 @@
-import { Button, ScrollView } from "std-widgets.slint";
+import { ScrollView } from "std-widgets.slint";
 
-export struct ProductItem {
-    id: string,
-    name: string,
-    price: int,
+export struct ProductItem { id: string, name: string, price: int, color: color }
+export struct CategoryChip { id: string, name: string, color: color }
+export struct GridRow { a: ProductItem, b: ProductItem, c: ProductItem, count: int }
+export struct CheckLine { name: string, qty: int, total: int }
+
+// A styled product card (colored top bar + name + price in the category colour).
+component ProductCard inherits Rectangle {
+    in property <ProductItem> product;
+    callback clicked;
+    horizontal-stretch: 1;
+    height: 96px;
+    border-radius: 12px;
+    background: white;
+    border-width: 1px;
+    border-color: #c4ccd8;
+
+    Rectangle { x: 0; y: 0; width: parent.width; height: 6px; background: product.color; }
+    VerticalLayout {
+        padding: 12px;
+        padding-top: 16px;
+        Text { text: product.name; font-size: 15px; font-weight: 700; wrap: word-wrap; }
+        Rectangle { vertical-stretch: 1; }
+        Text { text: "\{product.price} MRU"; font-size: 18px; font-weight: 800; color: product.color; }
+    }
+    TouchArea { clicked => { root.clicked(); } }
 }
 
-export struct CheckLine {
-    name: string,
-    qty: int,
-    total: int,
+// A rounded category pill with a colored dot; active gets a blue fill.
+component Pill inherits Rectangle {
+    in property <string> label;
+    in property <color> dot;
+    in property <bool> active;
+    callback clicked;
+    height: 40px;
+    border-radius: 20px;
+    background: active ? #2563eb : white;
+    border-width: 1px;
+    border-color: #c4ccd8;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 16px;
+        spacing: 8px;
+        alignment: center;
+        Rectangle { width: 12px; height: 12px; border-radius: 6px; background: dot; }
+        Text { text: label; vertical-alignment: center; font-weight: 600; color: active ? white : #1b2230; }
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+// A big flat key for the login keypad.
+component Key inherits Rectangle {
+    in property <string> label;
+    in property <color> fill: #eef1f5;
+    in property <color> ink: #1b2230;
+    callback clicked;
+    height: 56px;
+    horizontal-stretch: 1;
+    border-radius: 10px;
+    background: fill;
+    Text { text: label; font-size: 20px; font-weight: 700; color: ink; horizontal-alignment: center; vertical-alignment: center; }
+    TouchArea { clicked => { root.clicked(); } }
 }
 
 export component MainWindow inherits Window {
     title: "Caisse — Café Adalya";
-    preferred-width: 1000px;
-    preferred-height: 680px;
-    min-width: 800px;
-    min-height: 560px;
+    preferred-width: 1040px;
+    preferred-height: 700px;
+    min-width: 900px;
+    min-height: 600px;
 
-    // ---- driven from Rust ----
     in property <bool> logged-in: false;
     in property <string> login-error;
     in property <string> operator-name;
-    in property <[ProductItem]> products;
+    in property <[CategoryChip]> categories;
+    in property <[GridRow]> grid;
     in property <[CheckLine]> lines;
     in property <int> total;
-    in property <string> currency: "MRU";
     in property <string> status;
+    in-out property <string> active-cat: "all";
 
-    // ---- to Rust ----
     callback login(string);
+    callback select-category(string);
     callback add-product(string);
-    callback pay();
+    callback pay(string);
     callback print-facture();
     callback logout();
 
-    // internal keypad buffer
     property <string> pin;
 
-    // =================== LOGIN ===================
+    // ===================== LOGIN =====================
     if !root.logged-in : Rectangle {
         background: #eef1f5;
         VerticalLayout {
             alignment: center;
             HorizontalLayout {
                 alignment: center;
-                VerticalLayout {
-                    width: 300px;
-                    spacing: 10px;
-
-                    Text { text: "Café Adalya"; font-size: 30px; font-weight: 800; horizontal-alignment: center; }
-                    Text { text: "Caisse — connexion"; color: #6a7384; horizontal-alignment: center; }
-
-                    Rectangle {
-                        height: 56px;
-                        border-radius: 10px;
-                        background: white;
-                        border-width: 1px;
-                        border-color: #c4ccd8;
-                        Text {
-                            text: root.pin == "" ? "— — — —" : root.pin;
-                            font-size: 24px;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
+                Rectangle {
+                    width: 320px;
+                    height: 490px;
+                    background: white;
+                    border-radius: 16px;
+                    border-width: 1px;
+                    border-color: #c4ccd8;
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 10px;
+                        Text { text: "Café Adalya"; font-size: 28px; font-weight: 800; horizontal-alignment: center; }
+                        Text { text: "Caisse — connexion"; color: #6a7384; horizontal-alignment: center; }
+                        Rectangle {
+                            height: 52px;
+                            border-radius: 10px;
+                            background: #eef1f5;
+                            Text { text: root.pin == "" ? "— — — —" : root.pin; font-size: 24px; horizontal-alignment: center; vertical-alignment: center; }
                         }
-                    }
-                    Text { text: root.login-error; color: #dc2626; horizontal-alignment: center; }
-
-                    // keypad
-                    HorizontalLayout { spacing: 8px;
-                        Button { text: "1"; height: 58px; clicked => { root.pin = root.pin + "1"; } }
-                        Button { text: "2"; height: 58px; clicked => { root.pin = root.pin + "2"; } }
-                        Button { text: "3"; height: 58px; clicked => { root.pin = root.pin + "3"; } }
-                    }
-                    HorizontalLayout { spacing: 8px;
-                        Button { text: "4"; height: 58px; clicked => { root.pin = root.pin + "4"; } }
-                        Button { text: "5"; height: 58px; clicked => { root.pin = root.pin + "5"; } }
-                        Button { text: "6"; height: 58px; clicked => { root.pin = root.pin + "6"; } }
-                    }
-                    HorizontalLayout { spacing: 8px;
-                        Button { text: "7"; height: 58px; clicked => { root.pin = root.pin + "7"; } }
-                        Button { text: "8"; height: 58px; clicked => { root.pin = root.pin + "8"; } }
-                        Button { text: "9"; height: 58px; clicked => { root.pin = root.pin + "9"; } }
-                    }
-                    HorizontalLayout { spacing: 8px;
-                        Button { text: "Effacer"; height: 58px; clicked => { root.pin = ""; } }
-                        Button { text: "0"; height: 58px; clicked => { root.pin = root.pin + "0"; } }
-                        Button { text: "Valider"; height: 58px; clicked => { root.login(root.pin); root.pin = ""; } }
+                        Text { text: root.login-error; color: #dc2626; horizontal-alignment: center; }
+                        HorizontalLayout { spacing: 8px;
+                            Key { label: "1"; clicked => { root.pin = root.pin + "1"; } }
+                            Key { label: "2"; clicked => { root.pin = root.pin + "2"; } }
+                            Key { label: "3"; clicked => { root.pin = root.pin + "3"; } }
+                        }
+                        HorizontalLayout { spacing: 8px;
+                            Key { label: "4"; clicked => { root.pin = root.pin + "4"; } }
+                            Key { label: "5"; clicked => { root.pin = root.pin + "5"; } }
+                            Key { label: "6"; clicked => { root.pin = root.pin + "6"; } }
+                        }
+                        HorizontalLayout { spacing: 8px;
+                            Key { label: "7"; clicked => { root.pin = root.pin + "7"; } }
+                            Key { label: "8"; clicked => { root.pin = root.pin + "8"; } }
+                            Key { label: "9"; clicked => { root.pin = root.pin + "9"; } }
+                        }
+                        HorizontalLayout { spacing: 8px;
+                            Key { label: "C"; clicked => { root.pin = ""; } }
+                            Key { label: "0"; clicked => { root.pin = root.pin + "0"; } }
+                            Key { label: "OK"; fill: #2563eb; ink: white; clicked => { root.login(root.pin); root.pin = ""; } }
+                        }
                     }
                 }
             }
         }
     }
 
-    // =================== MAIN ===================
+    // ===================== MAIN =====================
     if root.logged-in : Rectangle {
         background: #eef1f5;
         VerticalLayout {
@@ -108,52 +155,109 @@ export component MainWindow inherits Window {
                     Text { text: "Café Adalya — Caisse"; font-size: 18px; font-weight: 800; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                     Text { text: root.operator-name; color: #6a7384; vertical-alignment: center; }
-                    Button { text: "Déconnexion"; clicked => { root.logout(); } }
+                    Rectangle {
+                        width: 130px;
+                        height: 38px;
+                        border-radius: 10px;
+                        background: #eef1f5;
+                        Text { text: "Déconnexion"; horizontal-alignment: center; vertical-alignment: center; font-weight: 600; }
+                        TouchArea { clicked => { root.logout(); } }
+                    }
                 }
             }
 
             HorizontalLayout {
-                // ---- product list ----
-                ScrollView {
+                // ---- left: categories + product grid ----
+                VerticalLayout {
                     horizontal-stretch: 1;
-                    VerticalLayout {
-                        padding: 10px;
-                        spacing: 6px;
-                        for p in root.products : Button {
-                            height: 54px;
-                            text: "\{p.name}   —   \{p.price} \{root.currency}";
-                            clicked => { root.add-product(p.id); }
+                    padding: 12px;
+                    spacing: 10px;
+                    ScrollView {
+                        height: 46px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Pill { label: "Tout"; dot: #6a7384; active: root.active-cat == "all"; clicked => { root.active-cat = "all"; root.select-category("all"); } }
+                            for c in root.categories : Pill {
+                                label: c.name;
+                                dot: c.color;
+                                active: root.active-cat == c.id;
+                                clicked => { root.active-cat = c.id; root.select-category(c.id); }
+                            }
+                        }
+                    }
+                    ScrollView {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            spacing: 10px;
+                            for row in root.grid : HorizontalLayout {
+                                spacing: 10px;
+                                ProductCard { product: row.a; clicked => { root.add-product(row.a.id); } }
+                                if row.count >= 2 : ProductCard { product: row.b; clicked => { root.add-product(row.b.id); } }
+                                if row.count < 2 : Rectangle { horizontal-stretch: 1; }
+                                if row.count >= 3 : ProductCard { product: row.c; clicked => { root.add-product(row.c.id); } }
+                                if row.count < 3 : Rectangle { horizontal-stretch: 1; }
+                            }
                         }
                     }
                 }
 
-                // ---- check panel ----
+                // ---- right: check panel ----
                 Rectangle {
                     width: 360px;
                     background: white;
                     VerticalLayout {
-                        padding: 14px;
-                        spacing: 8px;
-                        Text { text: "Note en cours"; font-size: 18px; font-weight: 800; }
-
+                        padding: 16px;
+                        spacing: 10px;
+                        Text { text: "Note en cours"; font-size: 18px; font-weight: 800; color: #d97706; }
                         ScrollView {
                             vertical-stretch: 1;
                             VerticalLayout {
-                                spacing: 4px;
+                                spacing: 6px;
                                 for l in root.lines : HorizontalLayout {
-                                    Text { text: "\{l.qty} × \{l.name}"; horizontal-stretch: 1; }
-                                    Text { text: "\{l.total} \{root.currency}"; }
+                                    spacing: 10px;
+                                    Rectangle {
+                                        width: 34px;
+                                        height: 34px;
+                                        border-radius: 8px;
+                                        background: #e6eaf0;
+                                        Text { text: "\{l.qty}"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                    }
+                                    Text { text: l.name; vertical-alignment: center; horizontal-stretch: 1; }
+                                    Text { text: "\{l.total} MRU"; vertical-alignment: center; font-weight: 700; }
                                 }
                             }
                         }
-
                         Rectangle { height: 1px; background: #c4ccd8; }
                         HorizontalLayout {
-                            Text { text: "TOTAL"; font-size: 20px; font-weight: 800; horizontal-stretch: 1; }
-                            Text { text: "\{root.total} \{root.currency}"; font-size: 20px; font-weight: 800; }
+                            Text { text: "TOTAL"; font-size: 20px; font-weight: 800; horizontal-stretch: 1; vertical-alignment: center; }
+                            Text { text: "\{root.total} MRU"; font-size: 22px; font-weight: 800; }
                         }
-                        Button { text: "Imprimer la facture"; height: 46px; clicked => { root.print-facture(); } }
-                        Button { text: "Payer (Espèces)"; height: 56px; clicked => { root.pay(); } }
+                        Rectangle {
+                            height: 46px;
+                            border-radius: 10px;
+                            background: #e6eaf0;
+                            Text { text: "Imprimer la facture"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                            TouchArea { clicked => { root.print-facture(); } }
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            Rectangle {
+                                height: 58px;
+                                border-radius: 10px;
+                                background: #16a34a;
+                                horizontal-stretch: 1;
+                                Text { text: "Espèces"; color: white; font-size: 17px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                                TouchArea { clicked => { root.pay("Espèces"); } }
+                            }
+                            Rectangle {
+                                height: 58px;
+                                border-radius: 10px;
+                                background: #2563eb;
+                                horizontal-stretch: 1;
+                                Text { text: "Portefeuille"; color: white; font-size: 17px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                                TouchArea { clicked => { root.pay("Portefeuille"); } }
+                            }
+                        }
                         Text { text: root.status; color: #16a34a; horizontal-alignment: center; wrap: word-wrap; }
                     }
                 }
