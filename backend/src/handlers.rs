@@ -666,6 +666,59 @@ pub async fn upsert_product(
 }
 
 #[derive(Deserialize)]
+pub struct ServerIn {
+    pub server_id: String,
+    pub name: String,
+    pub active: bool,
+}
+
+pub async fn upsert_server(
+    State(pool): State<PgPool>,
+    Json(b): Json<ServerIn>,
+) -> Result<Json<Server>, AppError> {
+    let s = sqlx::query_as::<_, Server>(
+        "insert into servers (server_id, name, active) \
+         values ($1, $2, $3) \
+         on conflict (server_id) do update set name = excluded.name, active = excluded.active \
+         returning *",
+    )
+    .bind(&b.server_id)
+    .bind(&b.name)
+    .bind(b.active)
+    .fetch_one(&pool)
+    .await?;
+    Ok(Json(s))
+}
+
+#[derive(Deserialize)]
+pub struct ShiftIn {
+    pub shift_id: String,
+    pub name: String,
+    pub start_time: String,
+    pub end_time: String,
+}
+
+pub async fn upsert_shift(
+    State(pool): State<PgPool>,
+    Json(b): Json<ShiftIn>,
+) -> Result<Json<Shift>, AppError> {
+    let s = sqlx::query_as::<_, Shift>(
+        "insert into shifts (shift_id, name, start_time, end_time) \
+         values ($1, $2, $3, $4) \
+         on conflict (shift_id) do update set name = excluded.name, \
+           start_time = excluded.start_time, end_time = excluded.end_time \
+         returning *",
+    )
+    .bind(&b.shift_id)
+    .bind(&b.name)
+    .bind(&b.start_time)
+    .bind(&b.end_time)
+    .fetch_one(&pool)
+    .await?;
+    Ok(Json(s))
+}
+
+#[derive(Deserialize)]
 pub struct ToggleAssignment {
     pub server_id: String,
     pub zone_id: String,

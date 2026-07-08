@@ -375,6 +375,26 @@ export const sqliteApi: Api = {
     return product;
   },
 
+  upsertServer: async (server) => {
+    const d = await db();
+    await d.execute(
+      "insert into servers (server_id, name, active) values ($1,$2,$3) \
+       on conflict(server_id) do update set name=excluded.name, active=excluded.active",
+      [server.server_id, server.name, b2i(server.active)],
+    );
+    return server;
+  },
+
+  upsertShift: async (shift) => {
+    const d = await db();
+    await d.execute(
+      "insert into shifts (shift_id, name, start_time, end_time) values ($1,$2,$3,$4) \
+       on conflict(shift_id) do update set name=excluded.name, start_time=excluded.start_time, end_time=excluded.end_time",
+      [shift.shift_id, shift.name, shift.start_time, shift.end_time],
+    );
+    return shift;
+  },
+
   toggleAssignment: async (b) => {
     const d = await db();
     const existing = await d.select<{ assignment_id: string }[]>(

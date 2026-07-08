@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { ZonesManager } from "@/components/zones/ZonesManager";
 import { ProductsManager } from "@/components/products/ProductsManager";
+import { ServersManager } from "@/components/servers/ServersManager";
 import { ShiftAssignmentManager } from "@/components/roster/ShiftAssignmentManager";
 import { UsersManager } from "@/components/users/UsersManager";
 import { classNames } from "@/lib/util";
 
-type Tab = "zones" | "products" | "roster" | "users";
+type Tab = "zones" | "products" | "staff" | "roster" | "users";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "zones", label: "Zones" },
   { id: "products", label: "Produits & catégories" },
-  { id: "roster", label: "Serveurs & services" },
+  { id: "staff", label: "Serveurs" },
+  { id: "roster", label: "Affectations" },
   { id: "users", label: "Utilisateurs" },
 ];
 
@@ -39,6 +41,7 @@ export function SetupScreen() {
       <div className="scroll-area flex-1 px-6 pb-8">
         {tab === "zones" && <ZonesManager />}
         {tab === "products" && <ProductsManager />}
+        {tab === "staff" && <ServersManager />}
         {tab === "roster" && <ShiftAssignmentManager />}
         {tab === "users" && <UsersManager />}
       </div>

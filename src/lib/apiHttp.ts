@@ -60,6 +60,8 @@ export const httpApi: Api = {
   upsertZone: (zone) => post("/api/zones", zone),
   upsertCategory: (category) => post("/api/categories", category),
   upsertProduct: (product) => post("/api/products", product),
+  upsertServer: (server) => post("/api/servers", server),
+  upsertShift: (shift) => post("/api/shifts", shift),
   toggleAssignment: (b) => post<{ assigned: boolean }>("/api/assignments/toggle", b),
 
   listUsers: () => req<User[]>("/api/users"),

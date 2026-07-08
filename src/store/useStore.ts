@@ -92,6 +92,8 @@ interface AppState {
   upsertCategory: (category: Category) => Promise<void>;
   upsertProduct: (product: Product) => Promise<void>;
   retireProduct: (product_id: string) => Promise<void>;
+  upsertServer: (server: Server) => Promise<void>;
+  upsertShift: (shift: Shift) => Promise<void>;
   toggleAssignment: (
     server_id: string,
     zone_id: string,
@@ -363,6 +365,32 @@ export const useStore = create<AppState>()((set, get) => ({
     }));
     const product = get().products.find((p) => p.product_id === product_id);
     if (product) await api.upsertProduct(product).catch((e) => set({ error: (e as Error).message }));
+  },
+
+  upsertServer: async (server) => {
+    set((s) => ({
+      servers: s.servers.some((x) => x.server_id === server.server_id)
+        ? s.servers.map((x) => (x.server_id === server.server_id ? server : x))
+        : [...s.servers, server],
+    }));
+    try {
+      await api.upsertServer(server);
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  upsertShift: async (shift) => {
+    set((s) => ({
+      shifts: s.shifts.some((x) => x.shift_id === shift.shift_id)
+        ? s.shifts.map((x) => (x.shift_id === shift.shift_id ? shift : x))
+        : [...s.shifts, shift],
+    }));
+    try {
+      await api.upsertShift(shift);
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
   },
 
   toggleAssignment: async (server_id, zone_id, shift_id, date) => {

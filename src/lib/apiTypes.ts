@@ -82,6 +82,8 @@ export interface Api {
   upsertZone(zone: Zone): Promise<Zone>;
   upsertCategory(category: Category): Promise<Category>;
   upsertProduct(product: Product): Promise<Product>;
+  upsertServer(server: Server): Promise<Server>;
+  upsertShift(shift: Shift): Promise<Shift>;
   toggleAssignment(b: {
     server_id: string;
     zone_id: string;

@@ -60,7 +60,7 @@ async fn broadcast_changes(req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
     let res = next.run(req).await;
     if method == Method::POST && res.status().is_success() {
-        let is_config = ["/api/zones", "/api/products", "/api/categories", "/api/settings", "/api/assignments"]
+        let is_config = ["/api/zones", "/api/products", "/api/categories", "/api/settings", "/api/assignments", "/api/servers", "/api/shifts"]
             .iter()
             .any(|p| path.starts_with(p));
         let _ = events().send(if is_config { "config" } else { "checks" }.to_string());
@@ -105,6 +105,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/zones", post(handlers::upsert_zone))
         .route("/api/categories", post(handlers::upsert_category))
         .route("/api/products", post(handlers::upsert_product))
+        .route("/api/servers", post(handlers::upsert_server))
+        .route("/api/shifts", post(handlers::upsert_shift))
         .route("/api/assignments/toggle", post(handlers::toggle_assignment))
         .route_layer(middleware::from_fn_with_state(pool.clone(), require_admin));
 
