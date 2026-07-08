@@ -99,9 +99,12 @@
   border-radius: 999px;
 }
 
-/* End-of-day closing summary: hidden on screen, the only thing printed. */
+/* Printable docs (end-of-day summary, customer facture): hidden on screen,
+   the only thing shown on the printed page. Only one is ever mounted at a
+   time (cashier vs. reports screen), so they never collide. */
 @media screen {
-  #closing-summary {
+  #closing-summary,
+  #facture-receipt {
     display: none;
   }
 }
@@ -110,10 +113,13 @@
     visibility: hidden;
   }
   #closing-summary,
-  #closing-summary * {
+  #closing-summary *,
+  #facture-receipt,
+  #facture-receipt * {
     visibility: visible;
   }
-  #closing-summary {
+  #closing-summary,
+  #facture-receipt {
     position: absolute;
     inset: 0;
     display: block;

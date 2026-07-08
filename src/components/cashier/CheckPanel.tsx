@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icon";
 import { OrderLineRow } from "@/components/cashier/OrderLineRow";
 import { ReasonModal } from "@/components/cashier/ReasonModal";
 import { PayModal } from "@/components/cashier/PayModal";
+import { Facture } from "@/components/cashier/Facture";
 import { Modal } from "@/components/Modal";
 import { checkTotals } from "@/lib/totals";
 import { classNames, money, todayStr } from "@/lib/util";
@@ -264,6 +265,16 @@ export function CheckPanel() {
           </button>
         </div>
 
+        {check && totals.total > 0 && (
+          <button
+            onClick={() => window.print()}
+            className="press mt-3 flex w-full items-center justify-center gap-2 rounded-chip bg-panel-2 py-3 text-base font-bold text-text ring-1 ring-line hover:bg-line"
+          >
+            <Icon name="printer" className="h-5 w-5" />
+            Imprimer la facture
+          </button>
+        )}
+
         {check && (check.status === "OPEN" || check.status === "IN_PROGRESS") && totals.total > 0 && (
           <button
             onClick={() => setModal({ kind: "unpaid" })}
@@ -273,6 +284,18 @@ export function CheckPanel() {
           </button>
         )}
       </div>
+
+      {/* Printable facture (hidden on screen; shown only when printing). */}
+      {check && (
+        <Facture
+          check={check}
+          zone={zone}
+          tableText={tableText}
+          server={orderServer}
+          spotLabel={spotLabel}
+          currency={cur}
+        />
+      )}
 
       {/* ---- modals ---- */}
       {modal?.kind === "void" && (
