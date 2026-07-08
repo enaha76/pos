@@ -6,7 +6,7 @@ description = "Caisse — Café Adalya (native Windows 7 build, Slint + embedded
 
 [dependencies]
 # Software renderer + winit backend → no GPU/WebView2, runs on old Windows 7 hardware.
-slint = { version = "1.8", default-features = false, features = ["std", "backend-winit", "renderer-software"] }
+slint = { version = "1.8", default-features = false, features = ["std", "backend-winit", "renderer-software", "compat-1-2"] }
 # Bundled SQLite compiled from source → self-contained, no system dependency.
 rusqlite = { version = "0.31", features = ["bundled"] }
 sha2 = "0.10"
