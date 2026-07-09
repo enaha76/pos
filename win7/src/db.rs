@@ -562,24 +562,32 @@ impl Db {
         self.conn.query_row("select date('now')", [], |r| r.get::<_, String>(0)).unwrap_or_default()
     }
 
+    /// Prepare + map + collect in one shot (keeps the statement alive long enough).
+    fn query_vec<T, P, F>(&self, sql: &str, params: P, f: F) -> rusqlite::Result<Vec<T>>
+    where
+        P: rusqlite::Params,
+        F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+    {
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map(params, f)?.collect::<rusqlite::Result<Vec<T>>>()?;
+        Ok(rows)
+    }
+
     pub fn global_report(&self) -> rusqlite::Result<GlobalReport> {
         let total_sales: i64 = self.conn.query_row(
             "select coalesce(sum(p.amount),0) from payments p join checks c on c.check_id=p.check_id where c.status='CLOSED_PAID'",
             [], |r| r.get(0))?;
         let paid_checks: i64 = self.conn.query_row("select count(*) from checks where status='CLOSED_PAID'", [], |r| r.get(0))?;
         let unpaid_checks: i64 = self.conn.query_row("select count(*) from checks where status='CLOSED_UNPAID'", [], |r| r.get(0))?;
-        let by_zone = {
-            let mut s = self.conn.prepare("select z.name, coalesce(sum(p.amount),0) as a from checks c join payments p on p.check_id=c.check_id join zones z on z.zone_id=c.zone_id where c.status='CLOSED_PAID' group by z.name order by a desc")?;
-            s.query_map([], |r| Ok(Bar { label: r.get(0)?, amount: r.get(1)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        let by_server = {
-            let mut s = self.conn.prepare("select s.name, coalesce(sum(p.amount),0) as a from checks c join payments p on p.check_id=c.check_id join servers s on s.server_id=c.server_id where c.status='CLOSED_PAID' group by s.name order by a desc")?;
-            s.query_map([], |r| Ok(Bar { label: r.get(0)?, amount: r.get(1)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        let void_comp = {
-            let mut s = self.conn.prepare("select oi.state, coalesce(rc.label,'—'), sum(oi.qty), sum(oi.qty*oi.unit_price) from order_items oi left join reason_codes rc on rc.reason_id=oi.reason_id where oi.state in ('VOID','COMP') group by oi.state, rc.label")?;
-            s.query_map([], |r| Ok(VoidComp { state: r.get(0)?, label: r.get(1)?, count: r.get(2)?, amount: r.get(3)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
-        };
+        let by_zone = self.query_vec(
+            "select z.name, coalesce(sum(p.amount),0) as a from checks c join payments p on p.check_id=c.check_id join zones z on z.zone_id=c.zone_id where c.status='CLOSED_PAID' group by z.name order by a desc",
+            [], |r| Ok(Bar { label: r.get(0)?, amount: r.get(1)? }))?;
+        let by_server = self.query_vec(
+            "select s.name, coalesce(sum(p.amount),0) as a from checks c join payments p on p.check_id=c.check_id join servers s on s.server_id=c.server_id where c.status='CLOSED_PAID' group by s.name order by a desc",
+            [], |r| Ok(Bar { label: r.get(0)?, amount: r.get(1)? }))?;
+        let void_comp = self.query_vec(
+            "select oi.state, coalesce(rc.label,'—'), sum(oi.qty), sum(oi.qty*oi.unit_price) from order_items oi left join reason_codes rc on rc.reason_id=oi.reason_id where oi.state in ('VOID','COMP') group by oi.state, rc.label",
+            [], |r| Ok(VoidComp { state: r.get(0)?, label: r.get(1)?, count: r.get(2)?, amount: r.get(3)? }))?;
         Ok(GlobalReport { total_sales, paid_checks, unpaid_checks, by_zone, by_server, void_comp })
     }
 
@@ -589,18 +597,15 @@ impl Db {
             params![day], |r| r.get(0))?;
         let paid_count: i64 = self.conn.query_row(
             "select count(*) from checks where status='CLOSED_PAID' and date(opened_at)=?1", params![day], |r| r.get(0))?;
-        let unpaid = {
-            let mut s = self.conn.prepare("select c.ticket_number, s.name, z.name, coalesce(rc.label,'—'), coalesce((select sum(oi.qty*oi.unit_price) from order_items oi where oi.check_id=c.check_id and oi.state in ('HELD','SENT')),0) from checks c join servers s on s.server_id=c.server_id join zones z on z.zone_id=c.zone_id left join reason_codes rc on rc.reason_id=c.reason_id where c.status='CLOSED_UNPAID' and date(c.opened_at)=?1 order by c.ticket_number")?;
-            s.query_map(params![day], |r| Ok(Unpaid { ticket: r.get(0)?, server: r.get(1)?, zone: r.get(2)?, reason: r.get(3)?, amount: r.get(4)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        let by_server = {
-            let mut s = self.conn.prepare("select s.name, coalesce(sum(p.amount),0) as a from checks c join payments p on p.check_id=c.check_id join servers s on s.server_id=c.server_id where c.status='CLOSED_PAID' and date(c.opened_at)=?1 group by s.name order by a desc")?;
-            s.query_map(params![day], |r| Ok(Bar { label: r.get(0)?, amount: r.get(1)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        let void_comp = {
-            let mut s = self.conn.prepare("select oi.state, coalesce(rc.label,'—'), sum(oi.qty), sum(oi.qty*oi.unit_price) from order_items oi join checks c on c.check_id=oi.check_id left join reason_codes rc on rc.reason_id=oi.reason_id where oi.state in ('VOID','COMP') and date(c.opened_at)=?1 group by oi.state, rc.label")?;
-            s.query_map(params![day], |r| Ok(VoidComp { state: r.get(0)?, label: r.get(1)?, count: r.get(2)?, amount: r.get(3)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
-        };
+        let unpaid = self.query_vec(
+            "select c.ticket_number, s.name, z.name, coalesce(rc.label,'—'), coalesce((select sum(oi.qty*oi.unit_price) from order_items oi where oi.check_id=c.check_id and oi.state in ('HELD','SENT')),0) from checks c join servers s on s.server_id=c.server_id join zones z on z.zone_id=c.zone_id left join reason_codes rc on rc.reason_id=c.reason_id where c.status='CLOSED_UNPAID' and date(c.opened_at)=?1 order by c.ticket_number",
+            params![day], |r| Ok(Unpaid { ticket: r.get(0)?, server: r.get(1)?, zone: r.get(2)?, reason: r.get(3)?, amount: r.get(4)? }))?;
+        let by_server = self.query_vec(
+            "select s.name, coalesce(sum(p.amount),0) as a from checks c join payments p on p.check_id=c.check_id join servers s on s.server_id=c.server_id where c.status='CLOSED_PAID' and date(c.opened_at)=?1 group by s.name order by a desc",
+            params![day], |r| Ok(Bar { label: r.get(0)?, amount: r.get(1)? }))?;
+        let void_comp = self.query_vec(
+            "select oi.state, coalesce(rc.label,'—'), sum(oi.qty), sum(oi.qty*oi.unit_price) from order_items oi join checks c on c.check_id=oi.check_id left join reason_codes rc on rc.reason_id=oi.reason_id where oi.state in ('VOID','COMP') and date(c.opened_at)=?1 group by oi.state, rc.label",
+            params![day], |r| Ok(VoidComp { state: r.get(0)?, label: r.get(1)?, count: r.get(2)?, amount: r.get(3)? }))?;
         let unpaid_count = unpaid.len() as i64;
         Ok(DailyReport { date: day.to_string(), sales, paid_count, unpaid_count, unpaid, by_server, void_comp })
     }
