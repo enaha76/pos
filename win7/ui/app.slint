@@ -1,9 +1,9 @@
 import { ScrollView, LineEdit } from "std-widgets.slint";
 
-export struct ProductItem { id: string, name: string, price: int, color: color }
+export struct ProductItem { id: string, name: string, price_label: string, color: color }
 export struct CategoryChip { id: string, name: string, color: color }
 export struct GridRow { a: ProductItem, b: ProductItem, c: ProductItem, count: int }
-export struct CheckLine { item_id: string, name: string, qty: int, total: int, state: string }
+export struct CheckLine { item_id: string, name: string, qty: int, total_label: string, state: string }
 export struct ReasonItem { id: string, label: string }
 export struct ModItem { id: string, name: string, note: string, selected: bool }
 export struct ZoneTab { id: string, name: string }
@@ -20,7 +20,6 @@ export struct CfgZone { id: string, name: string, mode: string, spot: string, ac
 
 component ProductCard inherits Rectangle {
     in property <ProductItem> product;
-    in property <string> currency;
     callback clicked;
     horizontal-stretch: 1;
     height: 96px;
@@ -34,7 +33,7 @@ component ProductCard inherits Rectangle {
         padding-top: 16px;
         Text { text: product.name; font-size: 15px; font-weight: 700; wrap: word-wrap; }
         Rectangle { vertical-stretch: 1; }
-        Text { text: "\{product.price} \{root.currency}"; font-size: 18px; font-weight: 800; color: product.color; }
+        Text { text: product.price_label; font-size: 18px; font-weight: 800; color: product.color; }
     }
     TouchArea { clicked => { root.clicked(); } }
 }
@@ -184,7 +183,7 @@ export component MainWindow inherits Window {
     in property <[ServerItem]> servers;
     in property <[CheckChip]> open-checks;
     in property <[CheckLine]> lines;
-    in property <int> total;
+    in property <string> total-label;
     in property <int> ticket;
     in property <bool> has-check;
     in property <bool> can-send;
@@ -414,10 +413,10 @@ export component MainWindow inherits Window {
                                     spacing: 10px;
                                     for row in root.grid : HorizontalLayout {
                                         spacing: 10px;
-                                        ProductCard { product: row.a; currency: root.currency; clicked => { root.add-product(row.a.id); } }
-                                        if row.count >= 2 : ProductCard { product: row.b; currency: root.currency; clicked => { root.add-product(row.b.id); } }
+                                        ProductCard { product: row.a; clicked => { root.add-product(row.a.id); } }
+                                        if row.count >= 2 : ProductCard { product: row.b; clicked => { root.add-product(row.b.id); } }
                                         if row.count < 2 : Rectangle { horizontal-stretch: 1; }
-                                        if row.count >= 3 : ProductCard { product: row.c; currency: root.currency; clicked => { root.add-product(row.c.id); } }
+                                        if row.count >= 3 : ProductCard { product: row.c; clicked => { root.add-product(row.c.id); } }
                                         if row.count < 3 : Rectangle { horizontal-stretch: 1; }
                                     }
                                 }
@@ -494,7 +493,7 @@ export component MainWindow inherits Window {
                                                     }
                                                 }
                                                 Text {
-                                                    text: "\{l.total} \{root.currency}"; vertical-alignment: center; font-weight: 700;
+                                                    text: l.total_label; vertical-alignment: center; font-weight: 700;
                                                     color: (l.state == "VOID" || l.state == "COMP") ? #6a7384 : #1b2230;
                                                 }
                                             }
@@ -526,7 +525,7 @@ export component MainWindow inherits Window {
                                 Rectangle { height: 1px; background: #c4ccd8; }
                                 HorizontalLayout {
                                     Text { text: "TOTAL"; font-size: 20px; font-weight: 800; horizontal-stretch: 1; vertical-alignment: center; }
-                                    Text { text: "\{root.total} \{root.currency}"; font-size: 22px; font-weight: 800; }
+                                    Text { text: root.total-label; font-size: 22px; font-weight: 800; }
                                 }
                                 ActionBtn { label: "Envoyer en cuisine"; fill: #16a34a; enabled: root.can-send; clicked => { root.send(); } }
                                 Rectangle {

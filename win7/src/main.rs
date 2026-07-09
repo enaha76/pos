@@ -1,5 +1,6 @@
 // Native Windows 7 build of Caisse (Slint + embedded SQLite, no browser/WebView2).
-// Console stays visible for now so first-run errors are easy to see on the POS.
+// Release builds hide the console; panics are still written to a log file.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod db;
 
 use db::{Db, NamedRow};
@@ -52,7 +53,7 @@ fn make_grid(items: &[ProductItem]) -> Vec<GridRow> {
     let empty = ProductItem {
         id: Default::default(),
         name: Default::default(),
-        price: 0,
+        price_label: Default::default(),
         color: slint::Color::from_argb_u8(0, 0, 0, 0),
     };
     let mut rows = Vec::new();
@@ -206,27 +207,27 @@ fn refresh(ui: &MainWindow, db: &Db, active: &Option<String>, draft: &Draft, ctx
                             item_id: it.item_id.clone().into(),
                             name: it.name.clone().into(),
                             qty: it.qty as i32,
-                            total: line as i32,
+                            total_label: money(line, &ctx.currency).into(),
                             state: it.state.clone().into(),
                         }
                     })
                     .collect();
                 ui.set_lines(Rc::new(slint::VecModel::from(rows)).into());
-                ui.set_total(subtotal as i32);
+                ui.set_total_label(money(subtotal, &ctx.currency).into());
                 ui.set_ticket(check.ticket_number as i32);
                 ui.set_has_check(true);
                 ui.set_can_send(held > 0);
                 ui.set_can_pay(sent > 0 && held == 0);
             }
-            Err(_) => set_empty(ui),
+            Err(_) => set_empty(ui, &ctx.currency),
         },
-        None => set_empty(ui),
+        None => set_empty(ui, &ctx.currency),
     }
 }
 
-fn set_empty(ui: &MainWindow) {
+fn set_empty(ui: &MainWindow, cur: &str) {
     ui.set_lines(Rc::new(slint::VecModel::from(Vec::<CheckLine>::new())).into());
-    ui.set_total(0);
+    ui.set_total_label(money(0, cur).into());
     ui.set_ticket(0);
     ui.set_has_check(false);
     ui.set_can_send(false);
@@ -381,6 +382,14 @@ fn ensure_and_add(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Console is hidden in release, so record panics to a log file for support.
+    std::panic::set_hook(Box::new(|info| {
+        let dir = std::path::PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".into()))
+            .join("CafeAdalyaCaisse");
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join("panic.log"), format!("{info}\n"));
+    }));
+
     let db = Rc::new(Db::open()?);
     let ui = MainWindow::new()?;
 
@@ -464,7 +473,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ProductItem {
                     id: p.id.clone().into(),
                     name: p.name.clone().into(),
-                    price: p.price as i32,
+                    price_label: money(p.price, &ctx.currency).into(),
                     color: col,
                 },
             )
@@ -802,15 +811,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let w = ui.as_weak();
         let db = db.clone();
+        let ctx = ctx.clone();
         let active = active.clone();
         ui.on_print_facture(move || {
             let ui = w.unwrap();
             let a = active.borrow().clone();
             match a.and_then(|cid| db.load_check(&cid).ok()) {
-                Some(check) => match db::print_facture(&check) {
-                    Ok(_) => ui.set_status("Facture envoyée à l'impression".into()),
-                    Err(e) => ui.set_status(format!("Impression : {e}").into()),
-                },
+                Some(check) => {
+                    let zone = ctx.zone.get(&check.zone_id).map(|z| z.name.clone()).unwrap_or_default();
+                    let table = check
+                        .table_label
+                        .clone()
+                        .or_else(|| check.table_id.as_ref().and_then(|t| ctx.table_label.get(t).cloned()))
+                        .unwrap_or_default();
+                    let server = ctx.server_name.get(&check.server_id).cloned().unwrap_or_default();
+                    let date = db.today();
+                    match db::print_facture(&check, &zone, &table, &server, &date, &ctx.currency) {
+                        Ok(_) => ui.set_status("Facture envoyée à l'impression".into()),
+                        Err(e) => ui.set_status(format!("Impression : {e}").into()),
+                    }
+                }
                 None => ui.set_status("Aucune note".into()),
             }
         });

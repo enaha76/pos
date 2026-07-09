@@ -938,27 +938,53 @@ pub fn print_daily(r: &DailyReport, cur: &str) -> std::io::Result<()> {
     send_to_printer(&s, "cloture_adalya.txt")
 }
 
-/// Build the facture text, write it to %TEMP%, and send it to the default
-/// printer via PowerShell (Windows only). POC-level formatting.
-pub fn print_facture(check: &CheckData) -> std::io::Result<()> {
+/// Build the customer facture (l'addition) and send it to the default printer.
+/// ASCII output for thermal-printer safety.
+pub fn print_facture(
+    check: &CheckData,
+    zone: &str,
+    table: &str,
+    server: &str,
+    date: &str,
+    cur: &str,
+) -> std::io::Result<()> {
     let mut s = String::new();
     s.push_str("           CAFE ADALYA\n             FACTURE\n");
-    s.push_str(&format!("         Ticket no {}\n", check.ticket_number));
     s.push_str("--------------------------------\n");
-    let mut total = 0i64;
+    s.push_str(&format!("Ticket no {}\n", check.ticket_number));
+    s.push_str(&format!("Date      {}\n", date));
+    if !zone.is_empty() {
+        let loc = if table.is_empty() { zone.to_string() } else { format!("{} - {}", zone, table) };
+        s.push_str(&format!("Zone      {}\n", loc));
+    }
+    if !server.is_empty() {
+        s.push_str(&format!("Serveur   {}\n", server));
+    }
+    s.push_str("--------------------------------\n");
+    let mut subtotal = 0i64;
+    let mut comps = 0i64;
     for it in &check.items {
         if it.state == "HELD" || it.state == "SENT" {
             let line = it.qty * it.unit_price;
-            total += line;
-            s.push_str(&format!(
-                "{:<24}{:>6}\n",
-                format!("{} x {}", it.qty, it.name),
-                line
-            ));
+            subtotal += line;
+            s.push_str(&format!("{:<24}{:>6}\n", format!("{} x {}", it.qty, it.name), line));
+        }
+    }
+    if check.items.iter().any(|it| it.state == "COMP") {
+        s.push_str("Offerts (sans frais)\n");
+        for it in &check.items {
+            if it.state == "COMP" {
+                comps += it.qty * it.unit_price;
+                s.push_str(&format!("  {} x {}\n", it.qty, it.name));
+            }
         }
     }
     s.push_str("--------------------------------\n");
-    s.push_str(&format!("{:<24}{:>6}\n", "TOTAL (MRU)", total));
+    s.push_str(&format!("{:<24}{:>6}\n", "Sous-total", subtotal));
+    if comps > 0 {
+        s.push_str(&format!("{:<24}{:>6}\n", "Offerts", format!("-{}", comps)));
+    }
+    s.push_str(&format!("{:<18}{:>12}\n", "TOTAL", format!("{} {}", subtotal, cur)));
     s.push_str("\n      Merci de votre visite !\n");
     send_to_printer(&s, "facture_adalya.txt")
 }
