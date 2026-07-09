@@ -892,25 +892,33 @@ impl Db {
     }
 }
 
-fn send_to_printer(s: &str, filename: &str) -> std::io::Result<()> {
+/// Write the receipt to a file and, on Windows, send it to the default printer.
+/// Returns the file path (so the UI can show where the receipt landed even when
+/// no printer is configured — useful for testing and for a manual reprint).
+fn send_to_printer(s: &str, filename: &str) -> std::io::Result<String> {
     let dir = std::env::var("TEMP").unwrap_or_else(|_| ".".into());
     let path = PathBuf::from(dir).join(filename);
     std::fs::write(&path, s)?;
     #[cfg(windows)]
     {
+        // Print to the default printer. Falls back to opening the file so the
+        // cashier can print manually if no default printer is set.
         let _ = std::process::Command::new("powershell")
             .args([
                 "-NoProfile",
                 "-Command",
-                &format!("Get-Content -LiteralPath '{}' | Out-Printer", path.display()),
+                &format!(
+                    "try {{ Get-Content -LiteralPath '{p}' | Out-Printer -ErrorAction Stop }} catch {{ Start-Process -FilePath '{p}' }}",
+                    p = path.display()
+                ),
             ])
             .spawn();
     }
-    Ok(())
+    Ok(path.display().to_string())
 }
 
 /// Printable end-of-day summary (Clôturer la journée). ASCII for printer safety.
-pub fn print_daily(r: &DailyReport, cur: &str) -> std::io::Result<()> {
+pub fn print_daily(r: &DailyReport, cur: &str) -> std::io::Result<String> {
     let mut s = String::new();
     s.push_str("           CAFE ADALYA\n      CLOTURE DE JOURNEE\n");
     s.push_str(&format!("           {}\n", r.date));
@@ -947,7 +955,7 @@ pub fn print_facture(
     server: &str,
     date: &str,
     cur: &str,
-) -> std::io::Result<()> {
+) -> std::io::Result<String> {
     let mut s = String::new();
     s.push_str("           CAFE ADALYA\n             FACTURE\n");
     s.push_str("--------------------------------\n");

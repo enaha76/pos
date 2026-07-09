@@ -827,7 +827,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let server = ctx.server_name.get(&check.server_id).cloned().unwrap_or_default();
                     let date = db.today();
                     match db::print_facture(&check, &zone, &table, &server, &date, &ctx.currency) {
-                        Ok(_) => ui.set_status("Facture envoyée à l'impression".into()),
+                        Ok(path) => ui.set_status(format!("Facture prête : {path}").into()),
                         Err(e) => ui.set_status(format!("Impression : {e}").into()),
                     }
                 }
@@ -900,7 +900,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let day = if day.is_empty() { db.today() } else { day };
             match db.daily_report(&day) {
                 Ok(d) => match db::print_daily(&d, &cur) {
-                    Ok(_) => ui.set_status("Clôture envoyée à l'impression".into()),
+                    Ok(path) => ui.set_status(format!("Clôture prête : {path}").into()),
                     Err(e) => ui.set_status(format!("Impression : {e}").into()),
                 },
                 Err(e) => ui.set_status(format!("Erreur : {e}").into()),
