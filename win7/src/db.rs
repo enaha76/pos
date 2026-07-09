@@ -54,6 +54,19 @@ pub struct UserRow {
     pub role: String,
 }
 
+pub struct User {
+    pub id: String,
+    pub name: String,
+    pub role: String,
+    pub active: bool,
+}
+
+pub struct AdminServer {
+    pub id: String,
+    pub name: String,
+    pub active: bool,
+}
+
 pub struct Modifier {
     pub id: String,
     pub name: String,
@@ -555,6 +568,136 @@ impl Db {
             &format!("update checks set status = 'CLOSED_UNPAID', reason_id = ?2, closed_at = {NOW} where check_id = ?1"),
             params![check_id, reason_id],
         )?;
+        Ok(())
+    }
+
+    // ---- admin: settings ----
+    pub fn update_settings(&self, spot: &str, currency: &str) -> Result<(), String> {
+        let spot = spot.trim();
+        let currency = currency.trim();
+        if spot.is_empty() || currency.is_empty() {
+            return Err("Libellé et devise requis".into());
+        }
+        self.conn
+            .execute("update settings set spot_label=?1, currency_symbol=?2 where id=1", params![spot, currency])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    // ---- admin: servers ----
+    pub fn all_servers(&self) -> rusqlite::Result<Vec<AdminServer>> {
+        self.query_vec("select server_id, name, active from servers order by name", [], |r| {
+            Ok(AdminServer { id: r.get(0)?, name: r.get(1)?, active: r.get::<_, i64>(2)? != 0 })
+        })
+    }
+
+    pub fn create_server(&self, name: &str) -> Result<(), String> {
+        self.conn
+            .execute("insert into servers (server_id, name, active) values (?1,?2,1)", params![new_id("srv"), name.trim()])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn upsert_server(&self, id: &str, name: &str, active: bool) -> Result<(), String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Nom requis".into());
+        }
+        self.conn
+            .execute(
+                "insert into servers (server_id, name, active) values (?1,?2,?3) \
+                 on conflict(server_id) do update set name=excluded.name, active=excluded.active",
+                params![id, name, if active { 1 } else { 0 }],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    // ---- admin: users ----
+    pub fn list_users(&self) -> rusqlite::Result<Vec<User>> {
+        self.query_vec("select user_id, name, role, active from users order by name", [], |r| {
+            Ok(User { id: r.get(0)?, name: r.get(1)?, role: r.get(2)?, active: r.get::<_, i64>(3)? != 0 })
+        })
+    }
+
+    pub fn create_user(&self, name: &str, role: &str, pin: &str) -> Result<(), String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Nom requis".into());
+        }
+        if role != "cashier" && role != "admin" {
+            return Err("Rôle invalide".into());
+        }
+        if pin.len() < 4 {
+            return Err("Le code doit faire au moins 4 chiffres".into());
+        }
+        let hash = sha256_hex(pin);
+        let dup: i64 = self
+            .conn
+            .query_row("select count(*) from users where pin_hash=?1 and active=1", params![hash], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        if dup > 0 {
+            return Err("Ce code est déjà utilisé".into());
+        }
+        self.conn
+            .execute(
+                "insert into users (user_id, name, pin_hash, role, active) values (?1,?2,?3,?4,1)",
+                params![new_id("usr"), name, hash, role],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn update_user(&self, user_id: &str, name: &str, role: &str, active: bool) -> Result<(), String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Nom requis".into());
+        }
+        if role != "cashier" && role != "admin" {
+            return Err("Rôle invalide".into());
+        }
+        // last-admin guard: block removing the final active admin
+        if role != "admin" || !active {
+            let n: i64 = self
+                .conn
+                .query_row(
+                    "select count(*) from users where role='admin' and active=1 and user_id<>?1",
+                    params![user_id],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if n == 0 {
+                return Err("Au moins un administrateur actif est requis".into());
+            }
+        }
+        self.conn
+            .execute(
+                "update users set name=?2, role=?3, active=?4 where user_id=?1",
+                params![user_id, name, role, if active { 1 } else { 0 }],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn set_user_pin(&self, user_id: &str, pin: &str) -> Result<(), String> {
+        if pin.len() < 4 {
+            return Err("Le code doit faire au moins 4 chiffres".into());
+        }
+        let hash = sha256_hex(pin);
+        let dup: i64 = self
+            .conn
+            .query_row(
+                "select count(*) from users where pin_hash=?1 and active=1 and user_id<>?2",
+                params![hash, user_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if dup > 0 {
+            return Err("Ce code est déjà utilisé".into());
+        }
+        self.conn
+            .execute("update users set pin_hash=?2 where user_id=?1", params![user_id, hash])
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

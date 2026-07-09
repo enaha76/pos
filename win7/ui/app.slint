@@ -13,6 +13,8 @@ export struct CheckChip { id: string, label: string, active: bool }
 export struct BarItem { label: string, amount: string, frac: float }
 export struct VCItem { tag: string, label: string, count: int, amount: string }
 export struct UnpaidItem { ticket: int, zone: string, server: string, reason: string, amount: string }
+export struct CfgUser { id: string, name: string, role: string, active: bool }
+export struct CfgServer { id: string, name: string, active: bool }
 
 component ProductCard inherits Rectangle {
     in property <ProductItem> product;
@@ -207,9 +209,17 @@ export component MainWindow inherits Window {
     in property <[BarItem]> rg-by-zone;
     in property <[BarItem]> rg-by-server;
     in property <[VCItem]> rg-voidcomp;
+    in property <[CfgUser]> cfg-users;
+    in property <[CfgServer]> cfg-servers;
     in-out property <string> route: "order";
     in-out property <string> report-tab: "daily";
     in-out property <string> report-date;
+    in-out property <string> cfg-tab: "users";
+    in-out property <string> cfg-spot;
+    in-out property <string> cfg-currency;
+    in-out property <string> nu-name;
+    in-out property <string> nu-role: "cashier";
+    in-out property <string> nu-pin;
     in-out property <string> active-cat: "all";
     in-out property <string> active-zone;
     in-out property <string> active-table-id;
@@ -234,6 +244,13 @@ export component MainWindow inherits Window {
     callback print-facture();
     callback refresh-reports();
     callback print-daily();
+    callback config-refresh();
+    callback save-user(string, string, string, bool);
+    callback create-user();
+    callback set-user-pin(string, string);
+    callback save-server(string, string, bool);
+    callback add-server();
+    callback save-settings();
     callback logout();
 
     property <string> pin;
@@ -303,6 +320,7 @@ export component MainWindow inherits Window {
                     spacing: 8px;
                     NavBtn { label: "Commande"; active: root.route == "order"; clicked => { root.route = "order"; } }
                     if root.operator-role == "admin" : NavBtn { label: "Rapports"; active: root.route == "reports"; clicked => { root.route = "reports"; root.refresh-reports(); } }
+                    if root.operator-role == "admin" : NavBtn { label: "Config"; active: root.route == "config"; clicked => { root.route = "config"; root.config-refresh(); } }
                     Rectangle { vertical-stretch: 1; }
                     Text { text: root.operator-name; color: #6a7384; font-size: 11px; horizontal-alignment: center; wrap: word-wrap; }
                     NavBtn { label: "Quitter"; clicked => { root.logout(); } }
@@ -610,6 +628,112 @@ export component MainWindow inherits Window {
                                     for v in root.rg-voidcomp : HorizontalLayout {
                                         Text { text: "\{v.tag} · \{v.label} ×\{v.count}"; horizontal-stretch: 1; }
                                         Text { text: v.amount; color: #6a7384; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ===== CONFIGURATION SCREEN (admin) =====
+                if root.route == "config" : VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text { text: "Configuration"; font-size: 22px; font-weight: 800; vertical-alignment: center; }
+                        Tab { label: "Utilisateurs"; active: root.cfg-tab == "users"; clicked => { root.cfg-tab = "users"; } }
+                        Tab { label: "Serveurs"; active: root.cfg-tab == "servers"; clicked => { root.cfg-tab = "servers"; } }
+                        Tab { label: "Réglages"; active: root.cfg-tab == "settings"; clicked => { root.cfg-tab = "settings"; } }
+                    }
+                    Text { text: root.status; color: #dc2626; horizontal-alignment: center; }
+                    ScrollView {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            spacing: 10px;
+
+                            if root.cfg-tab == "users" : VerticalLayout {
+                                spacing: 10px;
+                                Rectangle {
+                                    background: white; border-radius: 12px; border-width: 1px; border-color: #c4ccd8;
+                                    VerticalLayout {
+                                        padding: 12px; spacing: 8px;
+                                        Text { text: "Ajouter un utilisateur"; font-weight: 800; }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit { placeholder-text: "Nom"; text: root.nu-name; edited(t) => { root.nu-name = t; } }
+                                            Rectangle {
+                                                width: 130px; height: 34px; border-radius: 8px; background: #eef1f5;
+                                                Text { text: root.nu-role == "admin" ? "Propriétaire" : "Caissier"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                                TouchArea { clicked => { root.nu-role = root.nu-role == "admin" ? "cashier" : "admin"; } }
+                                            }
+                                            LineEdit { placeholder-text: "Code"; text: root.nu-pin; edited(t) => { root.nu-pin = t; } }
+                                            Rectangle {
+                                                width: 100px; height: 34px; border-radius: 8px; background: #16a34a;
+                                                Text { text: "Ajouter"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                                TouchArea { clicked => { root.create-user(); } }
+                                            }
+                                        }
+                                    }
+                                }
+                                for u in root.cfg-users : Rectangle {
+                                    background: white; border-radius: 10px; border-width: 1px; border-color: #c4ccd8;
+                                    opacity: u.active ? 1.0 : 0.55;
+                                    HorizontalLayout {
+                                        padding: 10px; spacing: 8px;
+                                        LineEdit { text: u.name; accepted(t) => { root.save-user(u.id, t, u.role, u.active); } }
+                                        Rectangle {
+                                            width: 130px; height: 40px; border-radius: 8px; background: #eef1f5;
+                                            Text { text: u.role == "admin" ? "Propriétaire" : "Caissier"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                            TouchArea { clicked => { root.save-user(u.id, u.name, u.role == "admin" ? "cashier" : "admin", u.active); } }
+                                        }
+                                        Rectangle {
+                                            width: 100px; height: 40px; border-radius: 8px; background: u.active ? #16a34a : #cbd5e1;
+                                            Text { text: u.active ? "Actif" : "Inactif"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                            TouchArea { clicked => { root.save-user(u.id, u.name, u.role, !u.active); } }
+                                        }
+                                        LineEdit { placeholder-text: "Nouveau code"; accepted(t) => { root.set-user-pin(u.id, t); } }
+                                    }
+                                }
+                            }
+
+                            if root.cfg-tab == "servers" : VerticalLayout {
+                                spacing: 10px;
+                                Rectangle {
+                                    width: 200px; height: 40px; border-radius: 10px; background: #16a34a;
+                                    Text { text: "+ Ajouter un serveur"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                    TouchArea { clicked => { root.add-server(); } }
+                                }
+                                for s in root.cfg-servers : Rectangle {
+                                    background: white; border-radius: 10px; border-width: 1px; border-color: #c4ccd8;
+                                    opacity: s.active ? 1.0 : 0.55;
+                                    HorizontalLayout {
+                                        padding: 10px; spacing: 8px;
+                                        LineEdit { text: s.name; accepted(t) => { root.save-server(s.id, t, s.active); } }
+                                        Rectangle {
+                                            width: 110px; height: 40px; border-radius: 8px; background: s.active ? #16a34a : #cbd5e1;
+                                            Text { text: s.active ? "Actif" : "Inactif"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                            TouchArea { clicked => { root.save-server(s.id, s.name, !s.active); } }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if root.cfg-tab == "settings" : VerticalLayout {
+                                spacing: 10px;
+                                Rectangle {
+                                    background: white; border-radius: 12px; border-width: 1px; border-color: #c4ccd8;
+                                    VerticalLayout {
+                                        padding: 14px; spacing: 10px;
+                                        Text { text: "Libellé d'emplacement par défaut"; font-weight: 700; }
+                                        LineEdit { text: root.cfg-spot; edited(t) => { root.cfg-spot = t; } }
+                                        Text { text: "Devise"; font-weight: 700; }
+                                        LineEdit { text: root.cfg-currency; edited(t) => { root.cfg-currency = t; } }
+                                        Rectangle {
+                                            width: 140px; height: 40px; border-radius: 10px; background: #2563eb;
+                                            Text { text: "Enregistrer"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                            TouchArea { clicked => { root.save-settings(); } }
+                                        }
                                     }
                                 }
                             }

@@ -286,6 +286,23 @@ fn vc_model(vc: &[db::VoidComp], cur: &str) -> slint::ModelRc<VCItem> {
     Rc::new(slint::VecModel::from(rows)).into()
 }
 
+fn load_config(ui: &MainWindow, db: &Db) {
+    let users: Vec<CfgUser> = db
+        .list_users()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|u| CfgUser { id: u.id.into(), name: u.name.into(), role: u.role.into(), active: u.active })
+        .collect();
+    ui.set_cfg_users(Rc::new(slint::VecModel::from(users)).into());
+    let servers: Vec<CfgServer> = db
+        .all_servers()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| CfgServer { id: s.id.into(), name: s.name.into(), active: s.active })
+        .collect();
+    ui.set_cfg_servers(Rc::new(slint::VecModel::from(servers)).into());
+}
+
 fn load_reports(ui: &MainWindow, db: &Db, cur: &str) {
     let day = ui.get_report_date().to_string();
     let day = if day.is_empty() { db.today() } else { day };
@@ -350,6 +367,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (spot_default, currency) = db.settings().unwrap_or_else(|_| ("Table".into(), "MRU".into()));
     ui.set_currency(currency.clone().into());
     ui.set_report_date(db.today().into());
+    ui.set_cfg_spot(spot_default.clone().into());
+    ui.set_cfg_currency(currency.clone().into());
     ui.set_void_reasons(reason_model(&db, "void"));
     ui.set_comp_reasons(reason_model(&db, "comp"));
     ui.set_unpaid_reasons(reason_model(&db, "unpaid"));
@@ -843,6 +862,113 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Err(e) => ui.set_status(format!("Impression : {e}").into()),
                 },
                 Err(e) => ui.set_status(format!("Erreur : {e}").into()),
+            }
+        });
+    }
+
+    // ---- config: refresh lists ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        ui.on_config_refresh(move || {
+            let ui = w.unwrap();
+            load_config(&ui, &db);
+        });
+    }
+
+    // ---- config: users ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        ui.on_save_user(move |id, name, role, active| {
+            let ui = w.unwrap();
+            match db.update_user(id.as_str(), name.as_str(), role.as_str(), active) {
+                Ok(()) => {
+                    ui.set_status("Utilisateur enregistré".into());
+                    load_config(&ui, &db);
+                }
+                Err(e) => ui.set_status(e.into()),
+            }
+        });
+    }
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        ui.on_create_user(move || {
+            let ui = w.unwrap();
+            let name = ui.get_nu_name().to_string();
+            let role = ui.get_nu_role().to_string();
+            let pin = ui.get_nu_pin().to_string();
+            match db.create_user(&name, &role, &pin) {
+                Ok(()) => {
+                    ui.set_nu_name("".into());
+                    ui.set_nu_pin("".into());
+                    ui.set_status("Utilisateur créé".into());
+                    load_config(&ui, &db);
+                }
+                Err(e) => ui.set_status(e.into()),
+            }
+        });
+    }
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        ui.on_set_user_pin(move |id, pin| {
+            let ui = w.unwrap();
+            match db.set_user_pin(id.as_str(), pin.as_str()) {
+                Ok(()) => {
+                    ui.set_status("Code mis à jour".into());
+                    load_config(&ui, &db);
+                }
+                Err(e) => ui.set_status(e.into()),
+            }
+        });
+    }
+
+    // ---- config: servers ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        ui.on_save_server(move |id, name, active| {
+            let ui = w.unwrap();
+            match db.upsert_server(id.as_str(), name.as_str(), active) {
+                Ok(()) => {
+                    ui.set_status("Serveur enregistré".into());
+                    load_config(&ui, &db);
+                }
+                Err(e) => ui.set_status(e.into()),
+            }
+        });
+    }
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        ui.on_add_server(move || {
+            let ui = w.unwrap();
+            match db.create_server("Nouveau serveur") {
+                Ok(()) => {
+                    ui.set_status("Serveur ajouté".into());
+                    load_config(&ui, &db);
+                }
+                Err(e) => ui.set_status(e.into()),
+            }
+        });
+    }
+
+    // ---- config: settings ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        ui.on_save_settings(move || {
+            let ui = w.unwrap();
+            let spot = ui.get_cfg_spot().to_string();
+            let cur = ui.get_cfg_currency().to_string();
+            match db.update_settings(&spot, &cur) {
+                Ok(()) => {
+                    ui.set_currency(cur.into());
+                    ui.set_status("Réglages enregistrés (redémarrez pour tout appliquer)".into());
+                }
+                Err(e) => ui.set_status(e.into()),
             }
         });
     }
