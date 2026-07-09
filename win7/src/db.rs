@@ -2,7 +2,7 @@
 //! Reuses the exact same schema, seed and menu as the Tauri build
 //! (../../src-tauri/migrations/*.sql) and mirrors its check lifecycle.
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,8 +49,16 @@ pub struct OpenCheck {
 }
 
 pub struct UserRow {
+    pub user_id: String,
     pub name: String,
     pub role: String,
+}
+
+pub struct Modifier {
+    pub id: String,
+    pub name: String,
+    pub price_delta: i64,
+    pub mod_group: Option<String>,
 }
 
 pub struct CheckItem {
@@ -102,6 +110,10 @@ const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 impl Db {
     pub fn open() -> rusqlite::Result<Self> {
         let conn = Connection::open(data_dir().join("caisse.db"))?;
+        // Enforce FKs (cascade deletes), and harden for a POS that may lose power.
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;",
+        )?;
         let db = Db { conn };
         db.migrate()?;
         db.hash_seed_pins()?;
@@ -144,15 +156,31 @@ impl Db {
         let h = sha256_hex(pin);
         let mut stmt = self
             .conn
-            .prepare("select name, role from users where active = 1 and pin_hash = ?1 limit 1")?;
+            .prepare("select user_id, name, role from users where active = 1 and pin_hash = ?1 limit 1")?;
         let mut rows = stmt.query(params![h])?;
         match rows.next()? {
             Some(r) => Ok(Some(UserRow {
-                name: r.get(0)?,
-                role: r.get(1)?,
+                user_id: r.get(0)?,
+                name: r.get(1)?,
+                role: r.get(2)?,
             })),
             None => Ok(None),
         }
+    }
+
+    pub fn modifiers(&self, product_id: &str) -> rusqlite::Result<Vec<Modifier>> {
+        let mut stmt = self.conn.prepare(
+            "select modifier_id, name, price_delta, mod_group from modifiers where product_id = ?1 order by mod_group, name",
+        )?;
+        let it = stmt.query_map(params![product_id], |r| {
+            Ok(Modifier {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                price_delta: r.get(2)?,
+                mod_group: r.get(3)?,
+            })
+        })?;
+        it.collect()
     }
 
     pub fn settings(&self) -> rusqlite::Result<(String, String)> {
@@ -339,12 +367,44 @@ impl Db {
         Ok(())
     }
 
-    pub fn add_item(&self, check_id: &str, product_id: &str, qty: i64) -> rusqlite::Result<()> {
-        let (name, price): (String, i64) = self.conn.query_row(
+    pub fn add_item(
+        &self,
+        check_id: &str,
+        product_id: &str,
+        qty: i64,
+        modifier_ids: &[String],
+    ) -> rusqlite::Result<()> {
+        let (base_name, base_price): (String, i64) = self.conn.query_row(
             "select name, price from products where product_id = ?1 and active = 1",
             params![product_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
+        // Fold any chosen modifiers into the line name + unit price (sorted by name).
+        let (name, price) = if modifier_ids.is_empty() {
+            (base_name, base_price)
+        } else {
+            let ph: Vec<String> = (0..modifier_ids.len()).map(|i| format!("?{}", i + 2)).collect();
+            let sql = format!(
+                "select name, price_delta from modifiers where product_id = ?1 and modifier_id in ({}) order by name",
+                ph.join(",")
+            );
+            let mut args: Vec<String> = Vec::with_capacity(1 + modifier_ids.len());
+            args.push(product_id.to_string());
+            args.extend(modifier_ids.iter().cloned());
+            let mut stmt = self.conn.prepare(&sql)?;
+            let mods: Vec<(String, i64)> = stmt
+                .query_map(params_from_iter(args.iter()), |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            if mods.is_empty() {
+                (base_name, base_price)
+            } else {
+                let names = mods.iter().map(|m| m.0.as_str()).collect::<Vec<_>>().join(", ");
+                (
+                    format!("{} · {}", base_name, names),
+                    base_price + mods.iter().map(|m| m.1).sum::<i64>(),
+                )
+            }
+        };
         let server: String =
             self.conn
                 .query_row("select server_id from checks where check_id = ?1", params![check_id], |r| {

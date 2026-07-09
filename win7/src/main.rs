@@ -157,6 +157,7 @@ fn refresh(ui: &MainWindow, db: &Db, active: &Option<String>, draft: &Draft, ctx
     ui.set_active_table_mode(zinfo.map(|z| z.table_mode.clone()).unwrap_or_else(|| "none".into()).into());
     let spot = zinfo
         .and_then(|z| z.spot_label.clone())
+        .filter(|s| !s.is_empty()) // empty override must fall back, not blank the label
         .unwrap_or_else(|| ctx.spot_default.clone());
     ui.set_spot_label(spot.into());
     let tbl_label = draft
@@ -230,6 +231,42 @@ fn set_empty(ui: &MainWindow) {
     ui.set_has_check(false);
     ui.set_can_send(false);
     ui.set_can_pay(false);
+}
+
+fn set_mods_model(ui: &MainWindow, mods: &[db::Modifier], selected: &[String]) {
+    let rows: Vec<ModItem> = mods
+        .iter()
+        .map(|m| ModItem {
+            id: m.id.clone().into(),
+            name: m.name.clone().into(),
+            note: if m.price_delta != 0 { format!("+{}", m.price_delta).into() } else { "".into() },
+            selected: selected.iter().any(|s| s == &m.id),
+        })
+        .collect();
+    ui.set_mods(Rc::new(slint::VecModel::from(rows)).into());
+}
+
+/// Ensure an open check exists (create from the draft on first item), then add.
+fn ensure_and_add(
+    db: &Db,
+    active: &Rc<RefCell<Option<String>>>,
+    draft: &Draft,
+    product_id: &str,
+    mods: &[String],
+) -> Result<(), String> {
+    let zone = draft.zone_id.clone().ok_or_else(|| "Choisissez une zone".to_string())?;
+    let server = draft.server_id.clone().ok_or_else(|| "Choisissez un serveur".to_string())?;
+    let cid = {
+        let mut a = active.borrow_mut();
+        if a.is_none() {
+            let c = db
+                .create_check(&zone, &server, draft.table_id.as_deref(), draft.table_label.as_deref())
+                .map_err(|e| e.to_string())?;
+            *a = Some(c);
+        }
+        a.clone().unwrap()
+    };
+    db.add_item(&cid, product_id, 1, mods).map_err(|e| e.to_string())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -325,6 +362,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let active: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
     let draft: Rc<RefCell<Draft>> = Rc::new(RefCell::new(Draft::default()));
+    // (user_id, role) captured at login — for role gating + audit later.
+    let session: Rc<RefCell<(String, String)>> = Rc::new(RefCell::new((String::new(), String::new())));
+    // modifier picker state
+    let pending_product: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let pending_mods: Rc<RefCell<Vec<db::Modifier>>> = Rc::new(RefCell::new(Vec::new()));
+    let selected_mods: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
 
     // ---- filter by category ----
     {
@@ -456,11 +499,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let w = ui.as_weak();
         let db = db.clone();
+        let session = session.clone();
         ui.on_login(move |pin| {
             let ui = w.unwrap();
             match db.login(pin.as_str()) {
                 Ok(Some(u)) => {
+                    *session.borrow_mut() = (u.user_id, u.role.clone());
                     ui.set_operator_name(u.name.into());
+                    ui.set_operator_role(u.role.into());
                     ui.set_login_error("".into());
                     ui.set_status("".into());
                     ui.set_logged_in(true);
@@ -478,39 +524,96 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ctx = ctx.clone();
         let active = active.clone();
         let draft = draft.clone();
+        let pending_product = pending_product.clone();
+        let pending_mods = pending_mods.clone();
+        let selected_mods = selected_mods.clone();
         ui.on_add_product(move |id| {
             let ui = w.unwrap();
-            let (zone, server, table_id, table_label) = {
+            let pid = id.to_string();
+            // need a zone + server before starting a check
+            {
                 let d = draft.borrow();
-                (d.zone_id.clone(), d.server_id.clone(), d.table_id.clone(), d.table_label.clone())
-            };
-            let Some(zone) = zone else {
-                ui.set_status("Choisissez une zone".into());
-                return;
-            };
-            let Some(server) = server else {
-                ui.set_status("Choisissez un serveur".into());
-                return;
-            };
-            let cid = {
-                let mut a = active.borrow_mut();
-                if a.is_none() {
-                    match db.create_check(&zone, &server, table_id.as_deref(), table_label.as_deref()) {
-                        Ok(c) => *a = Some(c),
-                        Err(e) => {
-                            ui.set_status(format!("Erreur : {e}").into());
-                            return;
-                        }
-                    }
+                if d.zone_id.is_none() {
+                    ui.set_status("Choisissez une zone".into());
+                    return;
                 }
-                a.clone().unwrap()
-            };
-            if let Err(e) = db.add_item(&cid, id.as_str(), 1) {
-                ui.set_status(format!("Erreur : {e}").into());
+                if d.server_id.is_none() {
+                    ui.set_status("Choisissez un serveur".into());
+                    return;
+                }
+            }
+            // if the product has modifiers, choose them first
+            let mods = db.modifiers(&pid).unwrap_or_default();
+            if !mods.is_empty() {
+                *pending_product.borrow_mut() = Some(pid);
+                selected_mods.borrow_mut().clear();
+                set_mods_model(&ui, &mods, &[]);
+                *pending_mods.borrow_mut() = mods;
+                ui.set_modal_kind("mods".into());
                 return;
             }
-            refresh(&ui, &db, &active.borrow(), &draft.borrow(), &ctx);
-            ui.set_status("".into());
+            match ensure_and_add(&db, &active, &draft.borrow(), &pid, &[]) {
+                Ok(()) => {
+                    refresh(&ui, &db, &active.borrow(), &draft.borrow(), &ctx);
+                    ui.set_status("".into());
+                }
+                Err(e) => ui.set_status(e.into()),
+            }
+        });
+    }
+
+    // ---- modifier picker: toggle (single-select within a group) ----
+    {
+        let w = ui.as_weak();
+        let pending_mods = pending_mods.clone();
+        let selected_mods = selected_mods.clone();
+        ui.on_toggle_mod(move |id| {
+            let ui = w.unwrap();
+            let id = id.to_string();
+            let mods = pending_mods.borrow();
+            let group = mods.iter().find(|m| m.id == id).and_then(|m| m.mod_group.clone());
+            {
+                let mut sel = selected_mods.borrow_mut();
+                if sel.iter().any(|s| s == &id) {
+                    sel.retain(|s| s != &id);
+                } else {
+                    if let Some(g) = &group {
+                        let same: Vec<String> = mods
+                            .iter()
+                            .filter(|m| m.mod_group.as_ref() == Some(g))
+                            .map(|m| m.id.clone())
+                            .collect();
+                        sel.retain(|s| !same.contains(s));
+                    }
+                    sel.push(id);
+                }
+            }
+            set_mods_model(&ui, &mods, &selected_mods.borrow());
+        });
+    }
+
+    // ---- modifier picker: confirm ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        let ctx = ctx.clone();
+        let active = active.clone();
+        let draft = draft.clone();
+        let pending_product = pending_product.clone();
+        let selected_mods = selected_mods.clone();
+        ui.on_confirm_mods(move || {
+            let ui = w.unwrap();
+            let pid = pending_product.borrow().clone();
+            ui.set_modal_kind("".into());
+            let Some(pid) = pid else { return };
+            let sel = selected_mods.borrow().clone();
+            match ensure_and_add(&db, &active, &draft.borrow(), &pid, &sel) {
+                Ok(()) => {
+                    refresh(&ui, &db, &active.borrow(), &draft.borrow(), &ctx);
+                    ui.set_status("".into());
+                }
+                Err(e) => ui.set_status(e.into()),
+            }
         });
     }
 

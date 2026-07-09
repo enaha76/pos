@@ -5,6 +5,7 @@ export struct CategoryChip { id: string, name: string, color: color }
 export struct GridRow { a: ProductItem, b: ProductItem, c: ProductItem, count: int }
 export struct CheckLine { item_id: string, name: string, qty: int, total: int, state: string }
 export struct ReasonItem { id: string, label: string }
+export struct ModItem { id: string, name: string, note: string, selected: bool }
 export struct ZoneTab { id: string, name: string }
 export struct TableSpot { id: string, label: string }
 export struct ServerItem { id: string, name: string }
@@ -116,7 +117,9 @@ export component MainWindow inherits Window {
     in property <bool> logged-in: false;
     in property <string> login-error;
     in property <string> operator-name;
+    in property <string> operator-role;
     in property <string> currency: "MRU";
+    in property <[ModItem]> mods;
     in property <[CategoryChip]> categories;
     in property <[GridRow]> grid;
     in property <[ZoneTab]> zones;
@@ -153,6 +156,8 @@ export component MainWindow inherits Window {
     callback open-check(string);
     callback new-check();
     callback add-product(string);
+    callback toggle-mod(string);
+    callback confirm-mods();
     callback inc-line(string, int);
     callback send();
     callback apply-reason(string, string, string);
@@ -471,12 +476,15 @@ export component MainWindow inherits Window {
                     height: 460px;
                     background: white;
                     border-radius: 14px;
+                    // swallow taps on the card so they don't fall through to the backdrop
+                    TouchArea {}
                     VerticalLayout {
                         padding: 18px;
                         spacing: 8px;
                         Text {
                             font-size: 18px; font-weight: 800;
                             text: root.modal-kind == "server" ? "Assigner un serveur"
+                                : root.modal-kind == "mods" ? "Options"
                                 : root.modal-kind == "void" ? "Annuler l'article"
                                 : root.modal-kind == "comp" ? "Offrir l'article"
                                 : "Clôturer la note impayée";
@@ -488,6 +496,19 @@ export component MainWindow inherits Window {
                                 if root.modal-kind == "server" : VerticalLayout {
                                     spacing: 6px;
                                     for s in root.servers : ReasonBtn { label: s.name; clicked => { root.pick-server(s.id); root.modal-kind = ""; } }
+                                }
+                                if root.modal-kind == "mods" : VerticalLayout {
+                                    spacing: 6px;
+                                    for m in root.mods : Rectangle {
+                                        height: 48px; border-radius: 8px;
+                                        background: m.selected ? #2563eb : #eef1f5;
+                                        HorizontalLayout {
+                                            padding-left: 12px; padding-right: 12px; spacing: 8px;
+                                            Text { text: m.name; vertical-alignment: center; horizontal-stretch: 1; font-weight: 600; color: m.selected ? white : #1b2230; }
+                                            Text { text: m.note; vertical-alignment: center; color: m.selected ? white : #6a7384; }
+                                        }
+                                        TouchArea { clicked => { root.toggle-mod(m.id); } }
+                                    }
                                 }
                                 if root.modal-kind == "void" : VerticalLayout {
                                     spacing: 6px;
@@ -504,9 +525,14 @@ export component MainWindow inherits Window {
                             }
                         }
                         Rectangle {
-                            height: 44px; border-radius: 8px; background: #e6eaf0;
-                            Text { text: "Fermer"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
-                            TouchArea { clicked => { root.modal-kind = ""; } }
+                            height: 46px; border-radius: 8px;
+                            background: root.modal-kind == "mods" ? #16a34a : #e6eaf0;
+                            Text {
+                                text: root.modal-kind == "mods" ? "Ajouter" : "Fermer";
+                                color: root.modal-kind == "mods" ? white : #1b2230;
+                                horizontal-alignment: center; vertical-alignment: center; font-weight: 700;
+                            }
+                            TouchArea { clicked => { if (root.modal-kind == "mods") { root.confirm-mods(); } else { root.modal-kind = ""; } } }
                         }
                     }
                 }
