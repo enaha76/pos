@@ -301,6 +301,27 @@ fn load_config(ui: &MainWindow, db: &Db) {
         .map(|s| CfgServer { id: s.id.into(), name: s.name.into(), active: s.active })
         .collect();
     ui.set_cfg_servers(Rc::new(slint::VecModel::from(servers)).into());
+    let prods: Vec<CfgProduct> = db
+        .all_products()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| CfgProduct {
+            id: p.id.into(),
+            cat_id: p.category_id.into(),
+            cat_name: p.category_name.into(),
+            name: p.name.into(),
+            price: p.price.to_string().into(),
+            active: p.active,
+        })
+        .collect();
+    ui.set_cfg_products(Rc::new(slint::VecModel::from(prods)).into());
+    let zones: Vec<CfgZone> = db
+        .all_zones()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|z| CfgZone { id: z.id.into(), name: z.name.into(), mode: z.mode.into(), spot: z.spot.into(), active: z.active })
+        .collect();
+    ui.set_cfg_zones(Rc::new(slint::VecModel::from(zones)).into());
 }
 
 fn load_reports(ui: &MainWindow, db: &Db, cur: &str) {
@@ -369,6 +390,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ui.set_report_date(db.today().into());
     ui.set_cfg_spot(spot_default.clone().into());
     ui.set_cfg_currency(currency.clone().into());
+    ui.set_cfg_prod_cat(db.first_category().unwrap_or_default().into());
     ui.set_void_reasons(reason_model(&db, "void"));
     ui.set_comp_reasons(reason_model(&db, "comp"));
     ui.set_unpaid_reasons(reason_model(&db, "unpaid"));
@@ -948,6 +970,77 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match db.create_server("Nouveau serveur") {
                 Ok(()) => {
                     ui.set_status("Serveur ajouté".into());
+                    load_config(&ui, &db);
+                }
+                Err(e) => ui.set_status(e.into()),
+            }
+        });
+    }
+
+    // ---- config: products ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        ui.on_save_product(move |id, cat_id, name, price, active| {
+            let ui = w.unwrap();
+            let price = match price.to_string().trim().parse::<i64>() {
+                Ok(p) if p >= 0 => p,
+                _ => {
+                    ui.set_status("Prix invalide".into());
+                    return;
+                }
+            };
+            match db.upsert_product(id.as_str(), name.as_str(), cat_id.as_str(), price, active) {
+                Ok(()) => {
+                    ui.set_status("Produit enregistré (redémarrez pour l'écran de commande)".into());
+                    load_config(&ui, &db);
+                }
+                Err(e) => ui.set_status(e.into()),
+            }
+        });
+    }
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        ui.on_create_product(move |cat_id| {
+            let ui = w.unwrap();
+            let cat = cat_id.to_string();
+            let cat = if cat.is_empty() { db.first_category().unwrap_or_default() } else { cat };
+            match db.create_product(&cat, "Nouveau produit") {
+                Ok(()) => {
+                    ui.set_status("Produit ajouté".into());
+                    load_config(&ui, &db);
+                }
+                Err(e) => ui.set_status(e.into()),
+            }
+        });
+    }
+
+    // ---- config: zones ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        ui.on_save_zone(move |id, name, mode, spot, active| {
+            let ui = w.unwrap();
+            let spot = spot.to_string();
+            let spot_opt = if spot.trim().is_empty() { None } else { Some(spot.as_str()) };
+            match db.upsert_zone(id.as_str(), name.as_str(), mode.as_str(), spot_opt, 0, active) {
+                Ok(()) => {
+                    ui.set_status("Zone enregistrée (redémarrez pour l'écran de commande)".into());
+                    load_config(&ui, &db);
+                }
+                Err(e) => ui.set_status(e.into()),
+            }
+        });
+    }
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        ui.on_create_zone(move || {
+            let ui = w.unwrap();
+            match db.create_zone("Nouvelle zone") {
+                Ok(()) => {
+                    ui.set_status("Zone ajoutée".into());
                     load_config(&ui, &db);
                 }
                 Err(e) => ui.set_status(e.into()),

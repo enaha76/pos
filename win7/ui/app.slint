@@ -15,6 +15,8 @@ export struct VCItem { tag: string, label: string, count: int, amount: string }
 export struct UnpaidItem { ticket: int, zone: string, server: string, reason: string, amount: string }
 export struct CfgUser { id: string, name: string, role: string, active: bool }
 export struct CfgServer { id: string, name: string, active: bool }
+export struct CfgProduct { id: string, cat_id: string, cat_name: string, name: string, price: string, active: bool }
+export struct CfgZone { id: string, name: string, mode: string, spot: string, active: bool }
 
 component ProductCard inherits Rectangle {
     in property <ProductItem> product;
@@ -211,7 +213,10 @@ export component MainWindow inherits Window {
     in property <[VCItem]> rg-voidcomp;
     in property <[CfgUser]> cfg-users;
     in property <[CfgServer]> cfg-servers;
+    in property <[CfgProduct]> cfg-products;
+    in property <[CfgZone]> cfg-zones;
     in-out property <string> route: "order";
+    in-out property <string> cfg-prod-cat;
     in-out property <string> report-tab: "daily";
     in-out property <string> report-date;
     in-out property <string> cfg-tab: "users";
@@ -250,6 +255,10 @@ export component MainWindow inherits Window {
     callback set-user-pin(string, string);
     callback save-server(string, string, bool);
     callback add-server();
+    callback save-product(string, string, string, string, bool);
+    callback create-product(string);
+    callback save-zone(string, string, string, string, bool);
+    callback create-zone();
     callback save-settings();
     callback logout();
 
@@ -644,6 +653,8 @@ export component MainWindow inherits Window {
                         Text { text: "Configuration"; font-size: 22px; font-weight: 800; vertical-alignment: center; }
                         Tab { label: "Utilisateurs"; active: root.cfg-tab == "users"; clicked => { root.cfg-tab = "users"; } }
                         Tab { label: "Serveurs"; active: root.cfg-tab == "servers"; clicked => { root.cfg-tab = "servers"; } }
+                        Tab { label: "Produits"; active: root.cfg-tab == "products"; clicked => { root.cfg-tab = "products"; } }
+                        Tab { label: "Zones"; active: root.cfg-tab == "zones"; clicked => { root.cfg-tab = "zones"; } }
                         Tab { label: "Réglages"; active: root.cfg-tab == "settings"; clicked => { root.cfg-tab = "settings"; } }
                     }
                     Text { text: root.status; color: #dc2626; horizontal-alignment: center; }
@@ -714,6 +725,83 @@ export component MainWindow inherits Window {
                                             width: 110px; height: 40px; border-radius: 8px; background: s.active ? #16a34a : #cbd5e1;
                                             Text { text: s.active ? "Actif" : "Inactif"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
                                             TouchArea { clicked => { root.save-server(s.id, s.name, !s.active); } }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if root.cfg-tab == "products" : VerticalLayout {
+                                spacing: 10px;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text { text: "Ajouter dans :"; vertical-alignment: center; font-weight: 700; }
+                                    ScrollView {
+                                        horizontal-stretch: 1; height: 44px;
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            for c in root.categories : Pill { label: c.name; dot: c.color; active: root.cfg-prod-cat == c.id; clicked => { root.cfg-prod-cat = c.id; } }
+                                        }
+                                    }
+                                    Rectangle {
+                                        width: 120px; height: 40px; border-radius: 10px; background: #16a34a;
+                                        Text { text: "+ Ajouter"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                        TouchArea { clicked => { root.create-product(root.cfg-prod-cat); } }
+                                    }
+                                }
+                                for p in root.cfg-products : Rectangle {
+                                    background: white; border-radius: 10px; border-width: 1px; border-color: #c4ccd8;
+                                    opacity: p.active ? 1.0 : 0.55;
+                                    HorizontalLayout {
+                                        padding: 10px; spacing: 8px;
+                                        Text { text: p.cat_name; width: 120px; color: #6a7384; vertical-alignment: center; }
+                                        LineEdit { text: p.name; accepted(t) => { root.save-product(p.id, p.cat_id, t, p.price, p.active); } }
+                                        LineEdit { width: 90px; text: p.price; accepted(t) => { root.save-product(p.id, p.cat_id, p.name, t, p.active); } }
+                                        Text { text: root.currency; vertical-alignment: center; color: #6a7384; }
+                                        Rectangle {
+                                            width: 100px; height: 40px; border-radius: 8px; background: p.active ? #16a34a : #cbd5e1;
+                                            Text { text: p.active ? "Visible" : "Masqué"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                            TouchArea { clicked => { root.save-product(p.id, p.cat_id, p.name, p.price, !p.active); } }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if root.cfg-tab == "zones" : VerticalLayout {
+                                spacing: 10px;
+                                Rectangle {
+                                    width: 180px; height: 40px; border-radius: 10px; background: #16a34a;
+                                    Text { text: "+ Ajouter une zone"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                    TouchArea { clicked => { root.create-zone(); } }
+                                }
+                                for z in root.cfg-zones : Rectangle {
+                                    background: white; border-radius: 10px; border-width: 1px; border-color: #c4ccd8;
+                                    opacity: z.active ? 1.0 : 0.55;
+                                    VerticalLayout {
+                                        padding: 10px; spacing: 8px;
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit { text: z.name; accepted(t) => { root.save-zone(z.id, t, z.mode, z.spot, z.active); } }
+                                            Rectangle {
+                                                width: 110px; height: 40px; border-radius: 8px; background: z.active ? #16a34a : #cbd5e1;
+                                                Text { text: z.active ? "Active" : "Retirée"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                                TouchArea { clicked => { root.save-zone(z.id, z.name, z.mode, z.spot, !z.active); } }
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            Rectangle { width: 90px; height: 36px; border-radius: 8px; background: z.mode == "none" ? #2563eb : #eef1f5;
+                                                Text { text: "Aucune"; horizontal-alignment: center; vertical-alignment: center; font-weight: 600; color: z.mode == "none" ? white : #1b2230; }
+                                                TouchArea { clicked => { root.save-zone(z.id, z.name, "none", z.spot, z.active); } }
+                                            }
+                                            Rectangle { width: 90px; height: 36px; border-radius: 8px; background: z.mode == "free" ? #2563eb : #eef1f5;
+                                                Text { text: "Libre"; horizontal-alignment: center; vertical-alignment: center; font-weight: 600; color: z.mode == "free" ? white : #1b2230; }
+                                                TouchArea { clicked => { root.save-zone(z.id, z.name, "free", z.spot, z.active); } }
+                                            }
+                                            Rectangle { width: 90px; height: 36px; border-radius: 8px; background: z.mode == "fixed" ? #2563eb : #eef1f5;
+                                                Text { text: "Fixe"; horizontal-alignment: center; vertical-alignment: center; font-weight: 600; color: z.mode == "fixed" ? white : #1b2230; }
+                                                TouchArea { clicked => { root.save-zone(z.id, z.name, "fixed", z.spot, z.active); } }
+                                            }
+                                            LineEdit { placeholder-text: "Libellé (Table/Place…)"; text: z.spot; accepted(t) => { root.save-zone(z.id, z.name, z.mode, t, z.active); } }
                                         }
                                     }
                                 }

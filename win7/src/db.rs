@@ -67,6 +67,24 @@ pub struct AdminServer {
     pub active: bool,
 }
 
+pub struct AdminProduct {
+    pub id: String,
+    pub name: String,
+    pub price: i64,
+    pub category_id: String,
+    pub category_name: String,
+    pub active: bool,
+}
+
+pub struct AdminZone {
+    pub id: String,
+    pub name: String,
+    pub mode: String,
+    pub spot: String,
+    pub display_order: i64,
+    pub active: bool,
+}
+
 pub struct Modifier {
     pub id: String,
     pub name: String,
@@ -608,6 +626,87 @@ impl Db {
                 "insert into servers (server_id, name, active) values (?1,?2,?3) \
                  on conflict(server_id) do update set name=excluded.name, active=excluded.active",
                 params![id, name, if active { 1 } else { 0 }],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    // ---- admin: products ----
+    pub fn all_products(&self) -> rusqlite::Result<Vec<AdminProduct>> {
+        self.query_vec(
+            "select p.product_id, p.name, p.price, p.category_id, c.name, p.active from products p join categories c on c.category_id=p.category_id order by c.display_order, p.name",
+            [],
+            |r| Ok(AdminProduct { id: r.get(0)?, name: r.get(1)?, price: r.get(2)?, category_id: r.get(3)?, category_name: r.get(4)?, active: r.get::<_, i64>(5)? != 0 }),
+        )
+    }
+
+    pub fn first_category(&self) -> Option<String> {
+        self.conn
+            .query_row("select category_id from categories order by display_order limit 1", [], |r| r.get(0))
+            .ok()
+    }
+
+    pub fn upsert_product(&self, id: &str, name: &str, category_id: &str, price: i64, active: bool) -> Result<(), String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Nom requis".into());
+        }
+        self.conn
+            .execute(
+                "insert into products (product_id, name, category_id, price, active) values (?1,?2,?3,?4,?5) \
+                 on conflict(product_id) do update set name=excluded.name, category_id=excluded.category_id, price=excluded.price, active=excluded.active",
+                params![id, name, category_id, price.max(0), if active { 1 } else { 0 }],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn create_product(&self, category_id: &str, name: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "insert into products (product_id, name, category_id, price, active) values (?1,?2,?3,0,1)",
+                params![new_id("p"), name.trim(), category_id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    // ---- admin: zones ----
+    pub fn all_zones(&self) -> rusqlite::Result<Vec<AdminZone>> {
+        self.query_vec(
+            "select zone_id, name, table_mode, coalesce(spot_label,''), display_order, active from zones order by display_order",
+            [],
+            |r| Ok(AdminZone { id: r.get(0)?, name: r.get(1)?, mode: r.get(2)?, spot: r.get(3)?, display_order: r.get(4)?, active: r.get::<_, i64>(5)? != 0 }),
+        )
+    }
+
+    pub fn upsert_zone(&self, id: &str, name: &str, mode: &str, spot: Option<&str>, order: i64, active: bool) -> Result<(), String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Nom requis".into());
+        }
+        if mode != "none" && mode != "free" && mode != "fixed" {
+            return Err("Mode invalide".into());
+        }
+        self.conn
+            .execute(
+                "insert into zones (zone_id, name, display_order, table_mode, spot_label, active) values (?1,?2,?3,?4,?5,?6) \
+                 on conflict(zone_id) do update set name=excluded.name, table_mode=excluded.table_mode, spot_label=excluded.spot_label, active=excluded.active",
+                params![id, name, order, mode, spot, if active { 1 } else { 0 }],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn create_zone(&self, name: &str) -> Result<(), String> {
+        let order: i64 = self
+            .conn
+            .query_row("select coalesce(max(display_order),0)+1 from zones", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        self.conn
+            .execute(
+                "insert into zones (zone_id, name, display_order, table_mode, spot_label, active) values (?1,?2,?3,'free',null,1)",
+                params![new_id("zone"), name.trim(), order],
             )
             .map_err(|e| e.to_string())?;
         Ok(())
