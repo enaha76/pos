@@ -80,6 +80,45 @@ pub struct CheckData {
     pub items: Vec<CheckItem>,
 }
 
+pub struct Bar {
+    pub label: String,
+    pub amount: i64,
+}
+
+pub struct VoidComp {
+    pub state: String,
+    pub label: String,
+    pub count: i64,
+    pub amount: i64,
+}
+
+pub struct Unpaid {
+    pub ticket: i64,
+    pub server: String,
+    pub zone: String,
+    pub reason: String,
+    pub amount: i64,
+}
+
+pub struct DailyReport {
+    pub date: String,
+    pub sales: i64,
+    pub paid_count: i64,
+    pub unpaid_count: i64,
+    pub unpaid: Vec<Unpaid>,
+    pub by_server: Vec<Bar>,
+    pub void_comp: Vec<VoidComp>,
+}
+
+pub struct GlobalReport {
+    pub total_sales: i64,
+    pub paid_checks: i64,
+    pub unpaid_checks: i64,
+    pub by_zone: Vec<Bar>,
+    pub by_server: Vec<Bar>,
+    pub void_comp: Vec<VoidComp>,
+}
+
 pub fn sha256_hex(s: &str) -> String {
     let mut h = Sha256::new();
     h.update(s.as_bytes());
@@ -519,6 +558,53 @@ impl Db {
         Ok(())
     }
 
+    pub fn today(&self) -> String {
+        self.conn.query_row("select date('now')", [], |r| r.get::<_, String>(0)).unwrap_or_default()
+    }
+
+    pub fn global_report(&self) -> rusqlite::Result<GlobalReport> {
+        let total_sales: i64 = self.conn.query_row(
+            "select coalesce(sum(p.amount),0) from payments p join checks c on c.check_id=p.check_id where c.status='CLOSED_PAID'",
+            [], |r| r.get(0))?;
+        let paid_checks: i64 = self.conn.query_row("select count(*) from checks where status='CLOSED_PAID'", [], |r| r.get(0))?;
+        let unpaid_checks: i64 = self.conn.query_row("select count(*) from checks where status='CLOSED_UNPAID'", [], |r| r.get(0))?;
+        let by_zone = {
+            let mut s = self.conn.prepare("select z.name, coalesce(sum(p.amount),0) as a from checks c join payments p on p.check_id=c.check_id join zones z on z.zone_id=c.zone_id where c.status='CLOSED_PAID' group by z.name order by a desc")?;
+            s.query_map([], |r| Ok(Bar { label: r.get(0)?, amount: r.get(1)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let by_server = {
+            let mut s = self.conn.prepare("select s.name, coalesce(sum(p.amount),0) as a from checks c join payments p on p.check_id=c.check_id join servers s on s.server_id=c.server_id where c.status='CLOSED_PAID' group by s.name order by a desc")?;
+            s.query_map([], |r| Ok(Bar { label: r.get(0)?, amount: r.get(1)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let void_comp = {
+            let mut s = self.conn.prepare("select oi.state, coalesce(rc.label,'—'), sum(oi.qty), sum(oi.qty*oi.unit_price) from order_items oi left join reason_codes rc on rc.reason_id=oi.reason_id where oi.state in ('VOID','COMP') group by oi.state, rc.label")?;
+            s.query_map([], |r| Ok(VoidComp { state: r.get(0)?, label: r.get(1)?, count: r.get(2)?, amount: r.get(3)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        Ok(GlobalReport { total_sales, paid_checks, unpaid_checks, by_zone, by_server, void_comp })
+    }
+
+    pub fn daily_report(&self, day: &str) -> rusqlite::Result<DailyReport> {
+        let sales: i64 = self.conn.query_row(
+            "select coalesce(sum(p.amount),0) from payments p join checks c on c.check_id=p.check_id where c.status='CLOSED_PAID' and date(c.opened_at)=?1",
+            params![day], |r| r.get(0))?;
+        let paid_count: i64 = self.conn.query_row(
+            "select count(*) from checks where status='CLOSED_PAID' and date(opened_at)=?1", params![day], |r| r.get(0))?;
+        let unpaid = {
+            let mut s = self.conn.prepare("select c.ticket_number, s.name, z.name, coalesce(rc.label,'—'), coalesce((select sum(oi.qty*oi.unit_price) from order_items oi where oi.check_id=c.check_id and oi.state in ('HELD','SENT')),0) from checks c join servers s on s.server_id=c.server_id join zones z on z.zone_id=c.zone_id left join reason_codes rc on rc.reason_id=c.reason_id where c.status='CLOSED_UNPAID' and date(c.opened_at)=?1 order by c.ticket_number")?;
+            s.query_map(params![day], |r| Ok(Unpaid { ticket: r.get(0)?, server: r.get(1)?, zone: r.get(2)?, reason: r.get(3)?, amount: r.get(4)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let by_server = {
+            let mut s = self.conn.prepare("select s.name, coalesce(sum(p.amount),0) as a from checks c join payments p on p.check_id=c.check_id join servers s on s.server_id=c.server_id where c.status='CLOSED_PAID' and date(c.opened_at)=?1 group by s.name order by a desc")?;
+            s.query_map(params![day], |r| Ok(Bar { label: r.get(0)?, amount: r.get(1)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let void_comp = {
+            let mut s = self.conn.prepare("select oi.state, coalesce(rc.label,'—'), sum(oi.qty), sum(oi.qty*oi.unit_price) from order_items oi join checks c on c.check_id=oi.check_id left join reason_codes rc on rc.reason_id=oi.reason_id where oi.state in ('VOID','COMP') and date(c.opened_at)=?1 group by oi.state, rc.label")?;
+            s.query_map(params![day], |r| Ok(VoidComp { state: r.get(0)?, label: r.get(1)?, count: r.get(2)?, amount: r.get(3)? }))?.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let unpaid_count = unpaid.len() as i64;
+        Ok(DailyReport { date: day.to_string(), sales, paid_count, unpaid_count, unpaid, by_server, void_comp })
+    }
+
     pub fn load_check(&self, check_id: &str) -> rusqlite::Result<CheckData> {
         let (ticket, status, zone_id, server_id, table_id, table_label): (
             i64,
@@ -559,6 +645,52 @@ impl Db {
     }
 }
 
+fn send_to_printer(s: &str, filename: &str) -> std::io::Result<()> {
+    let dir = std::env::var("TEMP").unwrap_or_else(|_| ".".into());
+    let path = PathBuf::from(dir).join(filename);
+    std::fs::write(&path, s)?;
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!("Get-Content -LiteralPath '{}' | Out-Printer", path.display()),
+            ])
+            .spawn();
+    }
+    Ok(())
+}
+
+/// Printable end-of-day summary (Clôturer la journée). ASCII for printer safety.
+pub fn print_daily(r: &DailyReport, cur: &str) -> std::io::Result<()> {
+    let mut s = String::new();
+    s.push_str("           CAFE ADALYA\n      CLOTURE DE JOURNEE\n");
+    s.push_str(&format!("           {}\n", r.date));
+    s.push_str("--------------------------------\n");
+    s.push_str(&format!("{:<16}{:>16}\n", "Ventes", format!("{} {}", r.sales, cur)));
+    s.push_str(&format!("{:<16}{:>16}\n", "Notes payees", r.paid_count));
+    s.push_str(&format!("{:<16}{:>16}\n", "Impayes", r.unpaid_count));
+    s.push_str("--------------------------------\n");
+    s.push_str("Ventes par serveur\n");
+    if r.by_server.is_empty() {
+        s.push_str("  (aucune)\n");
+    }
+    for b in &r.by_server {
+        s.push_str(&format!("  {:<18}{:>10}\n", b.label, b.amount));
+    }
+    if !r.unpaid.is_empty() {
+        s.push_str("--------------------------------\n");
+        s.push_str("Impayes a recuperer\n");
+        for u in &r.unpaid {
+            s.push_str(&format!("  #{} {:<12}{:>8}\n    {}\n", u.ticket, u.server, u.amount, u.reason));
+        }
+    }
+    s.push_str("--------------------------------\n");
+    s.push_str("Signature: ____________________\n");
+    send_to_printer(&s, "cloture_adalya.txt")
+}
+
 /// Build the facture text, write it to %TEMP%, and send it to the default
 /// printer via PowerShell (Windows only). POC-level formatting.
 pub fn print_facture(check: &CheckData) -> std::io::Result<()> {
@@ -581,20 +713,5 @@ pub fn print_facture(check: &CheckData) -> std::io::Result<()> {
     s.push_str("--------------------------------\n");
     s.push_str(&format!("{:<24}{:>6}\n", "TOTAL (MRU)", total));
     s.push_str("\n      Merci de votre visite !\n");
-
-    let dir = std::env::var("TEMP").unwrap_or_else(|_| ".".into());
-    let path = PathBuf::from(dir).join("facture_adalya.txt");
-    std::fs::write(&path, s)?;
-
-    #[cfg(windows)]
-    {
-        let _ = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                &format!("Get-Content -LiteralPath '{}' | Out-Printer", path.display()),
-            ])
-            .spawn();
-    }
-    Ok(())
+    send_to_printer(&s, "facture_adalya.txt")
 }

@@ -10,6 +10,9 @@ export struct ZoneTab { id: string, name: string }
 export struct TableSpot { id: string, label: string }
 export struct ServerItem { id: string, name: string }
 export struct CheckChip { id: string, label: string, active: bool }
+export struct BarItem { label: string, amount: string, frac: float }
+export struct VCItem { tag: string, label: string, count: int, amount: string }
+export struct UnpaidItem { ticket: int, zone: string, server: string, reason: string, amount: string }
 
 component ProductCard inherits Rectangle {
     in property <ProductItem> product;
@@ -53,7 +56,6 @@ component Pill inherits Rectangle {
     TouchArea { clicked => { root.clicked(); } }
 }
 
-// A rounded tab with no dot (zones).
 component Tab inherits Rectangle {
     in property <string> label;
     in property <bool> active;
@@ -107,12 +109,63 @@ component ReasonBtn inherits Rectangle {
     TouchArea { clicked => { root.clicked(); } }
 }
 
+component NavBtn inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked;
+    height: 60px;
+    border-radius: 12px;
+    background: active ? #2563eb : transparent;
+    Text { text: label; color: active ? white : #6a7384; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+component StatTile inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <color> accent: #1b2230;
+    height: 86px;
+    horizontal-stretch: 1;
+    border-radius: 12px;
+    background: white;
+    border-width: 1px;
+    border-color: #c4ccd8;
+    VerticalLayout {
+        padding: 14px;
+        Text { text: label; color: #6a7384; font-size: 13px; }
+        Rectangle { vertical-stretch: 1; }
+        Text { text: value; font-size: 24px; font-weight: 800; color: accent; }
+    }
+}
+
+component BarRow inherits VerticalLayout {
+    in property <string> label;
+    in property <string> amount;
+    in property <float> frac;
+    spacing: 3px;
+    HorizontalLayout {
+        Text { text: label; font-weight: 600; horizontal-stretch: 1; }
+        Text { text: amount; color: #6a7384; }
+    }
+    Rectangle {
+        height: 8px; border-radius: 4px; background: #e6eaf0;
+        Rectangle { x: 0; y: 0; height: parent.height; width: parent.width * frac; border-radius: 4px; background: #2563eb; }
+    }
+}
+
+component Panel inherits VerticalLayout {
+    in property <string> title;
+    spacing: 8px;
+    Text { text: title; font-size: 15px; font-weight: 800; }
+    @children
+}
+
 export component MainWindow inherits Window {
     title: "Caisse — Café Adalya";
-    preferred-width: 1080px;
-    preferred-height: 720px;
-    min-width: 940px;
-    min-height: 620px;
+    preferred-width: 1120px;
+    preferred-height: 740px;
+    min-width: 960px;
+    min-height: 640px;
 
     in property <bool> logged-in: false;
     in property <string> login-error;
@@ -141,6 +194,22 @@ export component MainWindow inherits Window {
     in property <[ReasonItem]> void-reasons;
     in property <[ReasonItem]> comp-reasons;
     in property <[ReasonItem]> unpaid-reasons;
+    // reports
+    in property <string> rd-sales;
+    in property <string> rd-paid;
+    in property <string> rd-unpaid;
+    in property <[UnpaidItem]> rd-unpaid-list;
+    in property <[BarItem]> rd-by-server;
+    in property <[VCItem]> rd-voidcomp;
+    in property <string> rg-sales;
+    in property <string> rg-paid;
+    in property <string> rg-unpaid;
+    in property <[BarItem]> rg-by-zone;
+    in property <[BarItem]> rg-by-server;
+    in property <[VCItem]> rg-voidcomp;
+    in-out property <string> route: "order";
+    in-out property <string> report-tab: "daily";
+    in-out property <string> report-date;
     in-out property <string> active-cat: "all";
     in-out property <string> active-zone;
     in-out property <string> active-table-id;
@@ -163,6 +232,8 @@ export component MainWindow inherits Window {
     callback apply-reason(string, string, string);
     callback pay(string);
     callback print-facture();
+    callback refresh-reports();
+    callback print-daily();
     callback logout();
 
     property <string> pin;
@@ -219,251 +290,337 @@ export component MainWindow inherits Window {
         }
     }
 
-    // ===================== MAIN =====================
+    // ===================== APP (nav rail + content) =====================
     if root.logged-in : Rectangle {
         background: #eef1f5;
-        VerticalLayout {
-            // top bar
+        HorizontalLayout {
+            // ---- nav rail ----
             Rectangle {
-                height: 56px;
+                width: 96px;
                 background: white;
-                HorizontalLayout {
-                    padding: 14px;
-                    spacing: 12px;
-                    Text { text: "Café Adalya — Caisse"; font-size: 18px; font-weight: 800; vertical-alignment: center; }
-                    Rectangle { horizontal-stretch: 1; }
-                    Text { text: root.operator-name; color: #6a7384; vertical-alignment: center; }
-                    Rectangle {
-                        width: 130px;
-                        height: 36px;
-                        border-radius: 10px;
-                        background: #eef1f5;
-                        Text { text: "Déconnexion"; horizontal-alignment: center; vertical-alignment: center; font-weight: 600; }
-                        TouchArea { clicked => { root.logout(); } }
-                    }
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+                    NavBtn { label: "Commande"; active: root.route == "order"; clicked => { root.route = "order"; } }
+                    if root.operator-role == "admin" : NavBtn { label: "Rapports"; active: root.route == "reports"; clicked => { root.route = "reports"; root.refresh-reports(); } }
+                    Rectangle { vertical-stretch: 1; }
+                    Text { text: root.operator-name; color: #6a7384; font-size: 11px; horizontal-alignment: center; wrap: word-wrap; }
+                    NavBtn { label: "Quitter"; clicked => { root.logout(); } }
                 }
             }
 
-            // open checks bar
+            // ---- content ----
             Rectangle {
-                height: 56px;
-                background: white;
-                border-width: 1px;
-                border-color: #eef1f5;
-                HorizontalLayout {
-                    padding: 8px;
-                    spacing: 8px;
-                    ScrollView {
-                        horizontal-stretch: 1;
-                        height: 40px;
+                horizontal-stretch: 1;
+
+                // ===== ORDER SCREEN =====
+                if root.route == "order" : VerticalLayout {
+                    // open checks bar
+                    Rectangle {
+                        height: 56px;
+                        background: white;
                         HorizontalLayout {
+                            padding: 8px;
                             spacing: 8px;
-                            for c in root.open-checks : Rectangle {
+                            ScrollView {
+                                horizontal-stretch: 1;
+                                height: 40px;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    for c in root.open-checks : Rectangle {
+                                        height: 38px;
+                                        border-radius: 10px;
+                                        background: c.active ? #2563eb : #eef1f5;
+                                        HorizontalLayout {
+                                            padding-left: 12px;
+                                            padding-right: 12px;
+                                            Text { text: c.label; vertical-alignment: center; font-weight: 600; color: c.active ? white : #1b2230; }
+                                        }
+                                        TouchArea { clicked => { root.open-check(c.id); } }
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                width: 160px;
                                 height: 38px;
                                 border-radius: 10px;
-                                background: c.active ? #2563eb : #eef1f5;
-                                HorizontalLayout {
-                                    padding-left: 12px;
-                                    padding-right: 12px;
-                                    Text { text: c.label; vertical-alignment: center; font-weight: 600; color: c.active ? white : #1b2230; }
-                                }
-                                TouchArea { clicked => { root.open-check(c.id); } }
+                                background: #16a34a;
+                                Text { text: "+ Nouvelle note"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                TouchArea { clicked => { root.new-check(); } }
                             }
                         }
                     }
-                    Rectangle {
-                        width: 160px;
-                        height: 38px;
-                        border-radius: 10px;
-                        background: #16a34a;
-                        Text { text: "+ Nouvelle note"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
-                        TouchArea { clicked => { root.new-check(); } }
+
+                    HorizontalLayout {
+                        // left: zones + categories + grid
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            padding: 12px;
+                            spacing: 10px;
+                            ScrollView {
+                                height: 44px;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    for z in root.zones : Tab {
+                                        label: z.name;
+                                        active: root.active-zone == z.id;
+                                        clicked => { root.select-zone(z.id); }
+                                    }
+                                }
+                            }
+                            ScrollView {
+                                height: 44px;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Pill { label: "Tout"; dot: #6a7384; active: root.active-cat == "all"; clicked => { root.active-cat = "all"; root.select-category("all"); } }
+                                    for c in root.categories : Pill {
+                                        label: c.name;
+                                        dot: c.color;
+                                        active: root.active-cat == c.id;
+                                        clicked => { root.active-cat = c.id; root.select-category(c.id); }
+                                    }
+                                }
+                            }
+                            ScrollView {
+                                vertical-stretch: 1;
+                                VerticalLayout {
+                                    spacing: 10px;
+                                    for row in root.grid : HorizontalLayout {
+                                        spacing: 10px;
+                                        ProductCard { product: row.a; currency: root.currency; clicked => { root.add-product(row.a.id); } }
+                                        if row.count >= 2 : ProductCard { product: row.b; currency: root.currency; clicked => { root.add-product(row.b.id); } }
+                                        if row.count < 2 : Rectangle { horizontal-stretch: 1; }
+                                        if row.count >= 3 : ProductCard { product: row.c; currency: root.currency; clicked => { root.add-product(row.c.id); } }
+                                        if row.count < 3 : Rectangle { horizontal-stretch: 1; }
+                                    }
+                                }
+                            }
+                        }
+
+                        // right: check panel
+                        Rectangle {
+                            width: 380px;
+                            background: white;
+                            VerticalLayout {
+                                padding: 16px;
+                                spacing: 8px;
+                                Text {
+                                    text: root.has-check ? "Ticket nº \{root.ticket}" : "Nouvelle note";
+                                    font-size: 18px; font-weight: 800; color: #d97706;
+                                }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    Text { text: root.zone-name == "" ? "Aucune zone" : root.zone-name; color: #6a7384; vertical-alignment: center; }
+                                    if root.table-label != "" : Text { text: "· \{root.spot-label} \{root.table-label}"; color: #6a7384; vertical-alignment: center; }
+                                }
+                                Rectangle {
+                                    height: 44px; border-radius: 10px; background: #eef1f5; border-width: 1px; border-color: #c4ccd8;
+                                    HorizontalLayout {
+                                        padding-left: 12px; padding-right: 12px; spacing: 8px;
+                                        Text { text: "Serveur"; color: #6a7384; vertical-alignment: center; }
+                                        Text { text: root.server-name; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                                        Text { text: "▾"; color: #6a7384; vertical-alignment: center; }
+                                    }
+                                    TouchArea { clicked => { root.modal-kind = "server"; } }
+                                }
+                                if root.active-table-mode == "free" : LineEdit {
+                                    placeholder-text: "Numéro (optionnel), Entrée pour valider";
+                                    text: root.table-label;
+                                    accepted(t) => { root.set-table("", t); }
+                                }
+                                if root.active-table-mode == "fixed" : ScrollView {
+                                    height: 50px;
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        for t in root.tables : Rectangle {
+                                            width: 50px; height: 44px; border-radius: 8px;
+                                            background: root.active-table-id == t.id ? #2563eb : #eef1f5;
+                                            Text { text: t.label; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; color: root.active-table-id == t.id ? white : #1b2230; }
+                                            TouchArea { clicked => { root.set-table(t.id, ""); } }
+                                        }
+                                    }
+                                }
+                                ScrollView {
+                                    vertical-stretch: 1;
+                                    VerticalLayout {
+                                        spacing: 4px;
+                                        for l in root.lines : Rectangle {
+                                            height: 54px;
+                                            border-radius: 8px;
+                                            background: root.selected-item == l.item_id ? #e6eaf0 : white;
+                                            border-width: root.selected-item == l.item_id ? 2px : 1px;
+                                            border-color: root.selected-item == l.item_id ? #2563eb : #eef1f5;
+                                            HorizontalLayout {
+                                                padding: 6px;
+                                                spacing: 10px;
+                                                Rectangle {
+                                                    width: 34px; height: 34px; border-radius: 8px; background: #e6eaf0;
+                                                    Text { text: "\{l.qty}"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                                }
+                                                VerticalLayout {
+                                                    horizontal-stretch: 1;
+                                                    Text { text: l.name; font-weight: 600; }
+                                                    Text {
+                                                        font-size: 12px;
+                                                        text: l.state == "HELD" ? "En attente" : l.state == "SENT" ? "Envoyé" : l.state == "VOID" ? "Annulé" : "Offert";
+                                                        color: l.state == "HELD" ? #d97706 : l.state == "SENT" ? #16a34a : l.state == "VOID" ? #dc2626 : #7c3aed;
+                                                    }
+                                                }
+                                                Text {
+                                                    text: "\{l.total} \{root.currency}"; vertical-alignment: center; font-weight: 700;
+                                                    color: (l.state == "VOID" || l.state == "COMP") ? #6a7384 : #1b2230;
+                                                }
+                                            }
+                                            TouchArea { clicked => { root.selected-item = l.item_id; root.selected-state = l.state; } }
+                                        }
+                                    }
+                                }
+                                if root.selected-state == "HELD" : HorizontalLayout {
+                                    spacing: 8px;
+                                    Rectangle { width: 48px; height: 44px; border-radius: 8px; background: #e6eaf0;
+                                        Text { text: "-"; font-size: 22px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.inc-line(root.selected-item, -1); } }
+                                    }
+                                    Rectangle { width: 48px; height: 44px; border-radius: 8px; background: #e6eaf0;
+                                        Text { text: "+"; font-size: 22px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.inc-line(root.selected-item, 1); } }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Rectangle { width: 110px; height: 44px; border-radius: 8px; background: #dc2626;
+                                        Text { text: "Annuler"; color: white; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.modal-kind = "void"; } }
+                                    }
+                                }
+                                if root.selected-state == "SENT" : Rectangle {
+                                    height: 44px; border-radius: 8px; background: #7c3aed;
+                                    Text { text: "Offrir"; color: white; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                                    TouchArea { clicked => { root.modal-kind = "comp"; } }
+                                }
+                                Rectangle { height: 1px; background: #c4ccd8; }
+                                HorizontalLayout {
+                                    Text { text: "TOTAL"; font-size: 20px; font-weight: 800; horizontal-stretch: 1; vertical-alignment: center; }
+                                    Text { text: "\{root.total} \{root.currency}"; font-size: 22px; font-weight: 800; }
+                                }
+                                ActionBtn { label: "Envoyer en cuisine"; fill: #16a34a; enabled: root.can-send; clicked => { root.send(); } }
+                                Rectangle {
+                                    height: 44px; border-radius: 10px; background: #e6eaf0;
+                                    Text { text: "Imprimer la facture"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                                    TouchArea { clicked => { root.print-facture(); } }
+                                }
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    ActionBtn { label: "Espèces"; fill: #16a34a; enabled: root.can-pay; clicked => { root.pay("Espèces"); } }
+                                    ActionBtn { label: "Portefeuille"; fill: #2563eb; enabled: root.can-pay; clicked => { root.pay("Portefeuille"); } }
+                                }
+                                if root.has-check : Rectangle {
+                                    height: 34px;
+                                    Text { text: "Clôturer impayé"; color: #6a7384; horizontal-alignment: center; vertical-alignment: center; }
+                                    TouchArea { clicked => { root.modal-kind = "unpaid"; } }
+                                }
+                                Text { text: root.status; color: #16a34a; horizontal-alignment: center; wrap: word-wrap; }
+                            }
+                        }
                     }
                 }
-            }
 
-            HorizontalLayout {
-                // ---- left: zones + categories + product grid ----
-                VerticalLayout {
-                    horizontal-stretch: 1;
-                    padding: 12px;
-                    spacing: 10px;
-                    ScrollView {
-                        height: 44px;
-                        HorizontalLayout {
-                            spacing: 8px;
-                            for z in root.zones : Tab {
-                                label: z.name;
-                                active: root.active-zone == z.id;
-                                clicked => { root.select-zone(z.id); }
-                            }
+                // ===== REPORTS SCREEN =====
+                if root.route == "reports" : VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text { text: "Rapports"; font-size: 22px; font-weight: 800; vertical-alignment: center; }
+                        Tab { label: "Aujourd'hui"; active: root.report-tab == "daily"; clicked => { root.report-tab = "daily"; } }
+                        Tab { label: "Global"; active: root.report-tab == "global"; clicked => { root.report-tab = "global"; } }
+                        Rectangle { horizontal-stretch: 1; }
+                        Rectangle {
+                            width: 120px; height: 40px; border-radius: 10px; background: #eef1f5; border-width: 1px; border-color: #c4ccd8;
+                            Text { text: "Actualiser"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                            TouchArea { clicked => { root.refresh-reports(); } }
+                        }
+                        if root.report-tab == "daily" : Rectangle {
+                            width: 180px; height: 40px; border-radius: 10px; background: #2563eb;
+                            Text { text: "Clôturer la journée"; color: white; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
+                            TouchArea { clicked => { root.print-daily(); } }
                         }
                     }
-                    ScrollView {
-                        height: 44px;
-                        HorizontalLayout {
-                            spacing: 8px;
-                            Pill { label: "Tout"; dot: #6a7384; active: root.active-cat == "all"; clicked => { root.active-cat = "all"; root.select-category("all"); } }
-                            for c in root.categories : Pill {
-                                label: c.name;
-                                dot: c.color;
-                                active: root.active-cat == c.id;
-                                clicked => { root.active-cat = c.id; root.select-category(c.id); }
-                            }
-                        }
-                    }
+
                     ScrollView {
                         vertical-stretch: 1;
                         VerticalLayout {
-                            spacing: 10px;
-                            for row in root.grid : HorizontalLayout {
-                                spacing: 10px;
-                                ProductCard { product: row.a; currency: root.currency; clicked => { root.add-product(row.a.id); } }
-                                if row.count >= 2 : ProductCard { product: row.b; currency: root.currency; clicked => { root.add-product(row.b.id); } }
-                                if row.count < 2 : Rectangle { horizontal-stretch: 1; }
-                                if row.count >= 3 : ProductCard { product: row.c; currency: root.currency; clicked => { root.add-product(row.c.id); } }
-                                if row.count < 3 : Rectangle { horizontal-stretch: 1; }
-                            }
-                        }
-                    }
-                }
+                            spacing: 14px;
 
-                // ---- right: check panel ----
-                Rectangle {
-                    width: 380px;
-                    background: white;
-                    VerticalLayout {
-                        padding: 16px;
-                        spacing: 8px;
-                        Text {
-                            text: root.has-check ? "Ticket nº \{root.ticket}" : "Nouvelle note";
-                            font-size: 18px; font-weight: 800; color: #d97706;
-                        }
-                        HorizontalLayout {
-                            spacing: 6px;
-                            Text { text: root.zone-name == "" ? "Aucune zone" : root.zone-name; color: #6a7384; vertical-alignment: center; }
-                            if root.table-label != "" : Text { text: "· \{root.spot-label} \{root.table-label}"; color: #6a7384; vertical-alignment: center; }
-                        }
-
-                        // server assignment
-                        Rectangle {
-                            height: 44px; border-radius: 10px; background: #eef1f5; border-width: 1px; border-color: #c4ccd8;
-                            HorizontalLayout {
-                                padding-left: 12px; padding-right: 12px; spacing: 8px;
-                                Text { text: "Serveur"; color: #6a7384; vertical-alignment: center; }
-                                Text { text: root.server-name; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                                Text { text: "▾"; color: #6a7384; vertical-alignment: center; }
-                            }
-                            TouchArea { clicked => { root.modal-kind = "server"; } }
-                        }
-
-                        // table selector
-                        if root.active-table-mode == "free" : LineEdit {
-                            placeholder-text: "Numéro (optionnel), Entrée pour valider";
-                            text: root.table-label;
-                            accepted(t) => { root.set-table("", t); }
-                        }
-                        if root.active-table-mode == "fixed" : ScrollView {
-                            height: 50px;
-                            HorizontalLayout {
-                                spacing: 6px;
-                                for t in root.tables : Rectangle {
-                                    width: 50px; height: 44px; border-radius: 8px;
-                                    background: root.active-table-id == t.id ? #2563eb : #eef1f5;
-                                    Text { text: t.label; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; color: root.active-table-id == t.id ? white : #1b2230; }
-                                    TouchArea { clicked => { root.set-table(t.id, ""); } }
+                            if root.report-tab == "daily" : VerticalLayout {
+                                spacing: 14px;
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    StatTile { label: "Ventes"; value: root.rd-sales; accent: #16a34a; }
+                                    StatTile { label: "Notes payées"; value: root.rd-paid; }
+                                    StatTile { label: "Impayés"; value: root.rd-unpaid; accent: #dc2626; }
                                 }
-                            }
-                        }
-
-                        ScrollView {
-                            vertical-stretch: 1;
-                            VerticalLayout {
-                                spacing: 4px;
-                                for l in root.lines : Rectangle {
-                                    height: 54px;
-                                    border-radius: 8px;
-                                    background: root.selected-item == l.item_id ? #e6eaf0 : white;
-                                    border-width: root.selected-item == l.item_id ? 2px : 1px;
-                                    border-color: root.selected-item == l.item_id ? #2563eb : #eef1f5;
-                                    HorizontalLayout {
-                                        padding: 6px;
-                                        spacing: 10px;
-                                        Rectangle {
-                                            width: 34px; height: 34px; border-radius: 8px; background: #e6eaf0;
-                                            Text { text: "\{l.qty}"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
-                                        }
-                                        VerticalLayout {
-                                            horizontal-stretch: 1;
-                                            Text { text: l.name; font-weight: 600; }
-                                            Text {
-                                                font-size: 12px;
-                                                text: l.state == "HELD" ? "En attente" : l.state == "SENT" ? "Envoyé" : l.state == "VOID" ? "Annulé" : "Offert";
-                                                color: l.state == "HELD" ? #d97706 : l.state == "SENT" ? #16a34a : l.state == "VOID" ? #dc2626 : #7c3aed;
+                                Panel {
+                                    title: "Impayés — qui est responsable";
+                                    for u in root.rd-unpaid-list : Rectangle {
+                                        height: 54px; border-radius: 10px; background: #fdecec; border-width: 1px; border-color: #f5c2c2;
+                                        HorizontalLayout {
+                                            padding: 8px; spacing: 8px;
+                                            VerticalLayout {
+                                                horizontal-stretch: 1;
+                                                Text { text: "Ticket nº \{u.ticket} · \{u.zone}"; font-weight: 700; }
+                                                Text { text: u.reason; font-size: 12px; color: #6a7384; }
+                                            }
+                                            VerticalLayout {
+                                                Text { text: u.amount; font-weight: 800; color: #dc2626; horizontal-alignment: right; }
+                                                Text { text: u.server; font-size: 12px; color: #6a7384; horizontal-alignment: right; }
                                             }
                                         }
-                                        Text {
-                                            text: "\{l.total} \{root.currency}"; vertical-alignment: center; font-weight: 700;
-                                            color: (l.state == "VOID" || l.state == "COMP") ? #6a7384 : #1b2230;
-                                        }
                                     }
-                                    TouchArea { clicked => { root.selected-item = l.item_id; root.selected-state = l.state; } }
+                                }
+                                Panel {
+                                    title: "Ventes par serveur";
+                                    for b in root.rd-by-server : BarRow { label: b.label; amount: b.amount; frac: b.frac; }
+                                }
+                                Panel {
+                                    title: "Annulations & offerts";
+                                    for v in root.rd-voidcomp : HorizontalLayout {
+                                        Text { text: "\{v.tag} · \{v.label} ×\{v.count}"; horizontal-stretch: 1; }
+                                        Text { text: v.amount; color: #6a7384; }
+                                    }
+                                }
+                            }
+
+                            if root.report-tab == "global" : VerticalLayout {
+                                spacing: 14px;
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    StatTile { label: "Ventes"; value: root.rg-sales; accent: #16a34a; }
+                                    StatTile { label: "Notes payées"; value: root.rg-paid; }
+                                    StatTile { label: "Impayés"; value: root.rg-unpaid; accent: #dc2626; }
+                                }
+                                Panel {
+                                    title: "Ventes par zone";
+                                    for b in root.rg-by-zone : BarRow { label: b.label; amount: b.amount; frac: b.frac; }
+                                }
+                                Panel {
+                                    title: "Ventes par serveur";
+                                    for b in root.rg-by-server : BarRow { label: b.label; amount: b.amount; frac: b.frac; }
+                                }
+                                Panel {
+                                    title: "Annulations & offerts";
+                                    for v in root.rg-voidcomp : HorizontalLayout {
+                                        Text { text: "\{v.tag} · \{v.label} ×\{v.count}"; horizontal-stretch: 1; }
+                                        Text { text: v.amount; color: #6a7384; }
+                                    }
                                 }
                             }
                         }
-
-                        if root.selected-state == "HELD" : HorizontalLayout {
-                            spacing: 8px;
-                            Rectangle { width: 48px; height: 44px; border-radius: 8px; background: #e6eaf0;
-                                Text { text: "-"; font-size: 22px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
-                                TouchArea { clicked => { root.inc-line(root.selected-item, -1); } }
-                            }
-                            Rectangle { width: 48px; height: 44px; border-radius: 8px; background: #e6eaf0;
-                                Text { text: "+"; font-size: 22px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
-                                TouchArea { clicked => { root.inc-line(root.selected-item, 1); } }
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                            Rectangle { width: 110px; height: 44px; border-radius: 8px; background: #dc2626;
-                                Text { text: "Annuler"; color: white; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
-                                TouchArea { clicked => { root.modal-kind = "void"; } }
-                            }
-                        }
-                        if root.selected-state == "SENT" : Rectangle {
-                            height: 44px; border-radius: 8px; background: #7c3aed;
-                            Text { text: "Offrir"; color: white; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
-                            TouchArea { clicked => { root.modal-kind = "comp"; } }
-                        }
-
-                        Rectangle { height: 1px; background: #c4ccd8; }
-                        HorizontalLayout {
-                            Text { text: "TOTAL"; font-size: 20px; font-weight: 800; horizontal-stretch: 1; vertical-alignment: center; }
-                            Text { text: "\{root.total} \{root.currency}"; font-size: 22px; font-weight: 800; }
-                        }
-
-                        ActionBtn { label: "Envoyer en cuisine"; fill: #16a34a; enabled: root.can-send; clicked => { root.send(); } }
-                        Rectangle {
-                            height: 44px; border-radius: 10px; background: #e6eaf0;
-                            Text { text: "Imprimer la facture"; horizontal-alignment: center; vertical-alignment: center; font-weight: 700; }
-                            TouchArea { clicked => { root.print-facture(); } }
-                        }
-                        HorizontalLayout {
-                            spacing: 10px;
-                            ActionBtn { label: "Espèces"; fill: #16a34a; enabled: root.can-pay; clicked => { root.pay("Espèces"); } }
-                            ActionBtn { label: "Portefeuille"; fill: #2563eb; enabled: root.can-pay; clicked => { root.pay("Portefeuille"); } }
-                        }
-                        if root.has-check : Rectangle {
-                            height: 34px;
-                            Text { text: "Clôturer impayé"; color: #6a7384; horizontal-alignment: center; vertical-alignment: center; }
-                            TouchArea { clicked => { root.modal-kind = "unpaid"; } }
-                        }
-                        Text { text: root.status; color: #16a34a; horizontal-alignment: center; wrap: word-wrap; }
                     }
                 }
             }
         }
     }
 
-    // ===================== MODAL (server picker / reasons) =====================
+    // ===================== MODAL =====================
     if root.modal-kind != "" : Rectangle {
         background: #00000088;
         TouchArea { clicked => { root.modal-kind = ""; } }
@@ -476,7 +633,6 @@ export component MainWindow inherits Window {
                     height: 460px;
                     background: white;
                     border-radius: 14px;
-                    // swallow taps on the card so they don't fall through to the backdrop
                     TouchArea {}
                     VerticalLayout {
                         padding: 18px;

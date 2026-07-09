@@ -246,6 +246,79 @@ fn set_mods_model(ui: &MainWindow, mods: &[db::Modifier], selected: &[String]) {
     ui.set_mods(Rc::new(slint::VecModel::from(rows)).into());
 }
 
+/// Format whole-MRU amounts with fr-FR thousands grouping, e.g. "2 800 MRU".
+fn money(n: i64, cur: &str) -> String {
+    let s = n.abs().to_string();
+    let b = s.as_bytes();
+    let mut out = String::new();
+    for (i, c) in b.iter().enumerate() {
+        if i > 0 && (b.len() - i) % 3 == 0 {
+            out.push(' ');
+        }
+        out.push(*c as char);
+    }
+    format!("{}{} {}", if n < 0 { "-" } else { "" }, out, cur)
+}
+
+fn bars_model(bars: &[db::Bar], cur: &str) -> slint::ModelRc<BarItem> {
+    let max = bars.iter().map(|b| b.amount).max().unwrap_or(0).max(1);
+    let rows: Vec<BarItem> = bars
+        .iter()
+        .map(|b| BarItem {
+            label: b.label.clone().into(),
+            amount: money(b.amount, cur).into(),
+            frac: (b.amount as f32 / max as f32),
+        })
+        .collect();
+    Rc::new(slint::VecModel::from(rows)).into()
+}
+
+fn vc_model(vc: &[db::VoidComp], cur: &str) -> slint::ModelRc<VCItem> {
+    let rows: Vec<VCItem> = vc
+        .iter()
+        .map(|v| VCItem {
+            tag: if v.state == "VOID" { "Annulé".into() } else { "Offert".into() },
+            label: v.label.clone().into(),
+            count: v.count as i32,
+            amount: money(v.amount, cur).into(),
+        })
+        .collect();
+    Rc::new(slint::VecModel::from(rows)).into()
+}
+
+fn load_reports(ui: &MainWindow, db: &Db, cur: &str) {
+    let day = ui.get_report_date().to_string();
+    let day = if day.is_empty() { db.today() } else { day };
+    ui.set_report_date(day.clone().into());
+    if let Ok(d) = db.daily_report(&day) {
+        ui.set_rd_sales(money(d.sales, cur).into());
+        ui.set_rd_paid(d.paid_count.to_string().into());
+        ui.set_rd_unpaid(d.unpaid_count.to_string().into());
+        let ul: Vec<UnpaidItem> = d
+            .unpaid
+            .iter()
+            .map(|u| UnpaidItem {
+                ticket: u.ticket as i32,
+                zone: u.zone.clone().into(),
+                server: u.server.clone().into(),
+                reason: u.reason.clone().into(),
+                amount: money(u.amount, cur).into(),
+            })
+            .collect();
+        ui.set_rd_unpaid_list(Rc::new(slint::VecModel::from(ul)).into());
+        ui.set_rd_by_server(bars_model(&d.by_server, cur));
+        ui.set_rd_voidcomp(vc_model(&d.void_comp, cur));
+    }
+    if let Ok(g) = db.global_report() {
+        ui.set_rg_sales(money(g.total_sales, cur).into());
+        ui.set_rg_paid(g.paid_checks.to_string().into());
+        ui.set_rg_unpaid(g.unpaid_checks.to_string().into());
+        ui.set_rg_by_zone(bars_model(&g.by_zone, cur));
+        ui.set_rg_by_server(bars_model(&g.by_server, cur));
+        ui.set_rg_voidcomp(vc_model(&g.void_comp, cur));
+    }
+}
+
 /// Ensure an open check exists (create from the draft on first item), then add.
 fn ensure_and_add(
     db: &Db,
@@ -276,6 +349,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // settings, reason codes
     let (spot_default, currency) = db.settings().unwrap_or_else(|_| ("Table".into(), "MRU".into()));
     ui.set_currency(currency.clone().into());
+    ui.set_report_date(db.today().into());
     ui.set_void_reasons(reason_model(&db, "void"));
     ui.set_comp_reasons(reason_model(&db, "comp"));
     ui.set_unpaid_reasons(reason_model(&db, "unpaid"));
@@ -743,6 +817,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ---- refresh reports ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        let cur = ctx.currency.clone();
+        ui.on_refresh_reports(move || {
+            let ui = w.unwrap();
+            load_reports(&ui, &db, &cur);
+        });
+    }
+
+    // ---- print end-of-day ----
+    {
+        let w = ui.as_weak();
+        let db = db.clone();
+        let cur = ctx.currency.clone();
+        ui.on_print_daily(move || {
+            let ui = w.unwrap();
+            let day = ui.get_report_date().to_string();
+            let day = if day.is_empty() { db.today() } else { day };
+            match db.daily_report(&day) {
+                Ok(d) => match db::print_daily(&d, &cur) {
+                    Ok(_) => ui.set_status("Clôture envoyée à l'impression".into()),
+                    Err(e) => ui.set_status(format!("Impression : {e}").into()),
+                },
+                Err(e) => ui.set_status(format!("Erreur : {e}").into()),
+            }
+        });
+    }
+
     // ---- logout ----
     {
         let w = ui.as_weak();
@@ -756,6 +860,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             *draft.borrow_mut() = Draft::default();
             refresh(&ui, &db, &active.borrow(), &draft.borrow(), &ctx);
             ui.set_status("".into());
+            ui.set_route("order".into());
             ui.set_logged_in(false);
         });
     }
