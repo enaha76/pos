@@ -31,14 +31,15 @@ jobs:
         with:
           workspaces: win7
 
-      - name: Build (release, Windows 7 target)
-        run: cargo +nightly build --release --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+      # 32-bit (i686) so the .exe runs on BOTH 32-bit and 64-bit Windows 7.
+      - name: Build (release, 32-bit Windows 7 target)
+        run: cargo +nightly build --release --target i686-win7-windows-msvc -Z build-std=std,panic_abort
 
       - name: Upload exe
         uses: actions/upload-artifact@v4
         with:
           name: caisse-win7
-          path: win7/target/x86_64-win7-windows-msvc/release/caisse-win7.exe
+          path: win7/target/i686-win7-windows-msvc/release/caisse-win7.exe
           if-no-files-found: error
 
   # Native Linux build — download this to preview the exact same app on Ubuntu

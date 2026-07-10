@@ -2,8 +2,9 @@
 # redistributable. This block applies ONLY when building for that target, so
 # native host builds (e.g. Linux for local testing) are unaffected.
 #
-# The Win7 target selection + build-std live in the CI command line
+# Target = 32-bit (i686) so the .exe runs on BOTH 32-bit and 64-bit Windows 7.
+# The target selection + build-std live in the CI command line
 # (.github/workflows/win7.yml), not here, so `cargo run` on Linux/Windows
 # builds natively for quick local testing.
-[target.x86_64-win7-windows-msvc]
+[target.i686-win7-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
